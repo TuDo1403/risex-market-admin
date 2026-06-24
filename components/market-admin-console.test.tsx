@@ -21,6 +21,10 @@ const rpcMocks = vi.hoisted(() => ({
   readOpenOracleValidation: vi.fn(),
 }))
 
+const publicClientMocks = vi.hoisted(() => ({
+  estimateGas: vi.fn(),
+}))
+
 vi.mock('wagmi', () => ({
   useAccount: () => ({
     address: hookState.address,
@@ -47,7 +51,10 @@ vi.mock('wagmi', () => ({
 }))
 
 vi.mock('@/src/lib/client/public-client', () => ({
-  getPublicClient: vi.fn((env: EnvKey) => env),
+  getPublicClient: vi.fn((env: EnvKey) => ({
+    env,
+    estimateGas: publicClientMocks.estimateGas,
+  })),
 }))
 
 vi.mock('@/src/lib/market-view', () => ({
@@ -74,11 +81,13 @@ describe('MarketAdminConsole Lovable source port', () => {
     hookState.sendTransaction.mockReset()
     hookState.sendTransactionAsync.mockReset()
     hookState.sendTransactionAsync.mockResolvedValue('0xabc')
+    publicClientMocks.estimateGas.mockReset()
+    publicClientMocks.estimateGas.mockResolvedValue(123456n)
     hookState.switchChainAsync.mockReset()
     hookState.switchChainAsync.mockImplementation(async ({ chainId }: { chainId: number }) => {
       hookState.chainId = chainId
     })
-    rpcMocks.readLiveMarkets.mockImplementation(async (env: EnvKey) => marketsByEnv[env])
+    rpcMocks.readLiveMarkets.mockImplementation(async (client: { env: EnvKey } | EnvKey) => marketsByEnv[typeof client === 'string' ? client : client.env])
     const validate = async (_client: unknown, _addresses: unknown, marketIdOrSymbol: number | string, maybeSymbol?: string) => {
       const symbol = typeof marketIdOrSymbol === 'string' ? marketIdOrSymbol : maybeSymbol ?? 'DOGE'
       return {
@@ -182,10 +191,28 @@ describe('MarketAdminConsole Lovable source port', () => {
     expect(screen.getByLabelText(/Mark τ/i)).toHaveValue(480)
     expect(screen.getByLabelText(/Mark min/i)).toHaveValue(10)
     expect(screen.getByLabelText(/Mark max/i)).toHaveValue(50)
+    expect((await screen.findAllByText(/mark oracle not configured/i)).length).toBeGreaterThan(0)
+    await user.clear(screen.getByLabelText(/Mark max/i))
+    await user.type(screen.getByLabelText(/Mark max/i), '75')
+
     expect(screen.getAllByText(/configureMarkOracle/i).length).toBeGreaterThan(0)
     expect(screen.queryByText(/no config changes selected/i)).not.toBeInTheDocument()
     expect((await screen.findAllByText(/mark oracle will be configured/i)).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeEnabled()
+  })
+
+  it('uses only setMarketLock for lock-only updates', async () => {
+    const user = userEvent.setup()
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.dblClick(await screen.findByText('ARB/USDC'))
+    await user.click(screen.getByRole('button', { name: /^locked$/i }))
+
+    expect(screen.queryByText(/updateMarketConfig/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/configureMarkOracle/i)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/setMarketLock/i).length).toBeGreaterThan(0)
+    expect(screen.getByText('1 call')).toBeInTheDocument()
+    expect(screen.getByText(/locked=true/i)).toBeInTheDocument()
   })
 
   it('uses only updateMarketConfig for price-band-only updates', async () => {
@@ -253,6 +280,44 @@ describe('MarketAdminConsole Lovable source port', () => {
     view.rerender(<MarketAdminConsole initialEnv="mainnet" />)
   })
 
+  it('estimates gas before prompting the connected wallet transaction', async () => {
+    const user = userEvent.setup()
+    hookState.address = '0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D'
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.click(screen.getByRole('button', { name: /open market/i }))
+    await user.click(screen.getByRole('button', { name: /AERO\/USDC example/i }))
+    await user.click(screen.getByRole('button', { name: /send wallet tx/i }))
+
+    expect(publicClientMocks.estimateGas).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account: hookState.address,
+        value: 0n,
+      }),
+    )
+    expect(hookState.sendTransactionAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gas: 123456n,
+        value: 0n,
+      }),
+    )
+  })
+
+  it('does not prompt wallet transaction when gas estimation fails', async () => {
+    const user = userEvent.setup()
+    hookState.address = '0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D'
+    publicClientMocks.estimateGas.mockRejectedValue(new Error('execution reverted'))
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.click(screen.getByRole('button', { name: /open market/i }))
+    await user.click(screen.getByRole('button', { name: /AERO\/USDC example/i }))
+    await user.click(screen.getByRole('button', { name: /send wallet tx/i }))
+
+    expect(publicClientMocks.estimateGas).toHaveBeenCalled()
+    expect(hookState.sendTransactionAsync).not.toHaveBeenCalled()
+    expect(await screen.findByText(/execution reverted/i)).toBeInTheDocument()
+  })
+
   it('does not expose shadow as an environment or preflight panel', async () => {
     const user = userEvent.setup()
     render(<MarketAdminConsole initialEnv="staging" />)
@@ -306,7 +371,15 @@ const marketsByEnv: Record<EnvKey, Market[]> = {
     market({ id: 1, symbol: 'ETH', maxLeverage: 25, mmrPct: '2' }),
     market({ id: 2, symbol: 'BTC', maxLeverage: 25, mmrPct: '1.8' }),
     market({ id: 3, symbol: 'SOL', maxLeverage: 20, mmrPct: '2.5' }),
-    market({ id: 4, symbol: 'ARB', status: 'locked', markOracleConfigured: false }),
+    market({
+      id: 4,
+      symbol: 'ARB',
+      status: 'unlocked',
+      maxLeverage: 10,
+      mmrPct: '6.666666666666666666',
+      mmrRaw: '15000000000000000000',
+      markOracleConfigured: false,
+    }),
     market({ id: 5, symbol: 'DOGE', quote: 'USDT', deferredSettlement: true, stepSize: 10, stepPrice: 0.000001 }),
   ],
   testnet: [

@@ -8,7 +8,7 @@ export type EnvKey = "testnet" | "staging" | "mainnet";
 export const ENVS: { key: EnvKey; label: string; chain: string; access: string }[] = [
   { key: "testnet", label: "Testnet", chain: "RISE Testnet · 11155931", access: getDeploymentForEnv("testnet").addresses.accessManager },
   { key: "staging", label: "Staging", chain: "RISE Staging · 11155931", access: getDeploymentForEnv("staging").addresses.accessManager },
-  { key: "mainnet", label: "Mainnet", chain: "RISE Mainnet · 11155931", access: getDeploymentForEnv("mainnet").addresses.accessManager },
+  { key: "mainnet", label: "Mainnet", chain: "RISE Mainnet · 4153", access: getDeploymentForEnv("mainnet").addresses.accessManager },
 ];
 
 export const PROTOCOL_PRICE_PRECISION = 8;

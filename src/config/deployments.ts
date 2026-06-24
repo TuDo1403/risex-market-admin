@@ -25,7 +25,8 @@ export type DeploymentEnvironment = {
 type RuntimeEnv = NodeJS.ProcessEnv | Record<string, string | undefined>
 
 const RISE_TESTNET_CHAIN_ID = 11155931
-const MAINNET_RPC_URL = 'https://rpc.risechain.com'
+export const RISE_MAINNET_CHAIN_ID = 4153
+export const MAINNET_RPC_URL = 'https://rpc.risechain.com'
 export const TESTNET_RPC_URL = 'https://testnet.riselabs.xyz'
 const TESTNET_USDC = getAddress('0x8c49BaEeC2Ea2356598Ef33eA5dd52267643E677')
 const MAINNET_USDC = getAddress('0xe436820ba0C69702c1d3E601d421c0eF38262739')
@@ -73,7 +74,7 @@ const baseDeployments: Record<MarketAdminEnv, DeploymentEnvironment> = {
   },
   mainnet: {
     env: 'mainnet',
-    chainId: RISE_TESTNET_CHAIN_ID,
+    chainId: RISE_MAINNET_CHAIN_ID,
     rpcUrl: MAINNET_RPC_URL,
     multicall3Address: MULTICALL3_ADDRESS,
     source: 'risex-contracts/script/data/mainnet/deployment.json',

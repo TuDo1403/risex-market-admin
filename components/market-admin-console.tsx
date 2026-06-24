@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import type React from 'react'
 import { useEffect, useMemo, useState } from "react";
+import type { Address } from 'viem';
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi'
 import { getDeploymentForEnv } from "@/src/config/deployments";
 import { getPublicClient } from "@/src/lib/client/public-client";
@@ -590,7 +591,8 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
   const [oracleValidation, setOracleValidation] = useState<OracleValidationState>({ status: "idle" });
   const expectedIndexPriceId = state.symbol ? deriveIndexPriceId(state.symbol) : "";
   const expectedMarkPriceId = state.symbol ? deriveMarkPriceId(state.symbol) : "";
-  const willConfigureMissingMarkOracle = mode === "update" && base?.markOracleConfigured === false;
+  const missingMarkOracle = mode === "update" && base?.markOracleConfigured === false;
+  const willConfigureMissingMarkOracle = !!base && missingMarkOracle && hasMarkOracleConfigChange(base, state);
 
   useEffect(() => {
     if (!state.symbol || (mode === "update" && (marketId === null || marketId === undefined))) {
@@ -651,19 +653,19 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
               oracleValidation.status === "ok"
                 ? oracleValidation.validation.indexPriceIdMatches && oracleValidation.validation.markPriceIdMatches
                   ? "ok"
-                  : willConfigureMissingMarkOracle && oracleValidation.validation.indexPriceIdMatches
+                  : missingMarkOracle && oracleValidation.validation.indexPriceIdMatches
                     ? "warn"
                     : "fail"
                 : oracleValidation.status === "error"
-                  ? willConfigureMissingMarkOracle ? "warn" : "fail"
+                  ? missingMarkOracle ? "warn" : "fail"
                   : "pending",
             detail:
               oracleValidation.status === "ok"
-                ? willConfigureMissingMarkOracle && !oracleValidation.validation.markPriceIdMatches
-                  ? `index ${shortHex(oracleValidation.validation.actualIndexPriceId)} · mark oracle will be configured`
+                ? missingMarkOracle && !oracleValidation.validation.markPriceIdMatches
+                  ? `index ${shortHex(oracleValidation.validation.actualIndexPriceId)} · ${willConfigureMissingMarkOracle ? "mark oracle will be configured" : "mark oracle not configured"}`
                   : `index ${shortHex(oracleValidation.validation.actualIndexPriceId)} · mark ${shortHex(oracleValidation.validation.actualMarkPriceId)}`
                 : oracleValidation.status === "error"
-                  ? willConfigureMissingMarkOracle ? "mark oracle will be configured" : oracleValidation.message
+                  ? missingMarkOracle ? willConfigureMissingMarkOracle ? "mark oracle will be configured" : "mark oracle not configured" : oracleValidation.message
                   : mode === "open"
                     ? `checking Stork feeds for index ${shortHex(expectedIndexPriceId)} · mark ${shortHex(expectedMarkPriceId)}`
                     : "checking configured Stork IDs",
@@ -675,19 +677,19 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
               oracleValidation.status === "ok"
                 ? oracleValidation.validation.indexPriceLive && oracleValidation.validation.markPriceLive
                   ? "ok"
-                  : willConfigureMissingMarkOracle && oracleValidation.validation.indexPriceLive
+                  : missingMarkOracle && oracleValidation.validation.indexPriceLive
                     ? "warn"
                     : "fail"
                 : oracleValidation.status === "error"
-                  ? willConfigureMissingMarkOracle ? "warn" : "fail"
+                  ? missingMarkOracle ? "warn" : "fail"
                   : "pending",
             detail:
               oracleValidation.status === "ok"
-                ? willConfigureMissingMarkOracle && !oracleValidation.validation.markPriceLive
-                  ? `index ${oracleValidation.validation.indexPrice ?? "missing"} · mark oracle will be configured`
+                ? missingMarkOracle && !oracleValidation.validation.markPriceLive
+                  ? `index ${oracleValidation.validation.indexPrice ?? "missing"} · ${willConfigureMissingMarkOracle ? "mark oracle will be configured" : "mark oracle not configured"}`
                   : `index ${oracleValidation.validation.indexPrice ?? "missing"} · mark ${oracleValidation.validation.markPrice ?? "missing"}`
                 : oracleValidation.status === "error"
-                  ? willConfigureMissingMarkOracle ? "mark oracle will be configured" : oracleValidation.message
+                  ? missingMarkOracle ? willConfigureMissingMarkOracle ? "mark oracle will be configured" : "mark oracle not configured" : oracleValidation.message
                   : mode === "open" ? "reading Stork feed prices" : "reading RISExOracle prices",
           },
         ];
@@ -768,11 +770,7 @@ function buildMarkOracleConfigForPanel(state: EditorState): MarkOracleConfig {
   };
 }
 
-function sameMarkOracleConfig(base: Market, config: MarkOracleConfig) {
-  if (!base.markOracleConfigured) {
-    return false;
-  }
-
+function sameMarkOracleConfigValues(base: Market, config: MarkOracleConfig) {
   return (
     BigInt(base.markOracleTimeConstantSeconds) === config.timeConstantSeconds &&
     BigInt(base.markOracleMinUpdateInterval) === config.minUpdateInterval &&
@@ -780,15 +778,39 @@ function sameMarkOracleConfig(base: Market, config: MarkOracleConfig) {
   );
 }
 
+function hasMarkOracleConfigChange(base: Market, state: EditorState) {
+  try {
+    return !sameMarkOracleConfigValues(base, buildMarkOracleConfigForPanel(state));
+  } catch {
+    return true;
+  }
+}
+
+function rawMmrForPanel(base: Market | null, state: EditorState) {
+  if (base && String(state.mmrPct) === String(base.mmrPct)) {
+    return base.mmrRaw;
+  }
+
+  return rawMmr(state.mmrPct);
+}
+
+function rawPriceBandForPanel(base: Market | null, state: EditorState) {
+  if (base && String(state.priceBandPct) === priceBandBpsToPercent(base.priceBandBps)) {
+    return String(base.priceBandBps);
+  }
+
+  return rawPriceBandBps(state.priceBandPct);
+}
+
 function hasPerpsMarketConfigChange(base: Market, state: EditorState) {
   try {
     return (
       BigInt(base.maxLeverage) !== BigInt(state.maxLeverage) ||
-      BigInt(base.mmrRaw) !== parseRawBigInt(rawMmr(state.mmrPct)) ||
+      BigInt(base.mmrRaw) !== parseRawBigInt(rawMmrForPanel(base, state)) ||
       BigInt(base.minOrderStep) !== BigInt(state.minOrderStep) ||
       BigInt(base.maxOrderStep) !== BigInt(state.maxOrderStep) ||
       BigInt(base.oiLimitSteps) !== BigInt(state.oiLimitSteps) ||
-      BigInt(base.priceBandBps) !== parseRawBigInt(rawPriceBandBps(state.priceBandPct))
+      BigInt(base.priceBandBps) !== parseRawBigInt(rawPriceBandForPanel(base, state))
     );
   } catch {
     return true;
@@ -802,13 +824,13 @@ function buildPerpsConfigForPanel(env: EnvKey, state: EditorState, base: Market 
     quote: deployment.addresses.usdc,
     unlocked: state.status === "unlocked",
     maxLeverage: BigInt(state.maxLeverage),
-    maintenanceMarginFactor: parseRawBigInt(rawMmr(state.mmrPct)),
+    maintenanceMarginFactor: parseRawBigInt(rawMmrForPanel(base, state)),
     minOrderStep: BigInt(state.minOrderStep),
     maxOrderStep: BigInt(state.maxOrderStep),
     oiLimitSteps: BigInt(state.oiLimitSteps),
     stepSize: parseRawBigInt(base?.stepSizeRaw ?? rawStepSize(state.stepSize)),
     stepPrice: parseRawBigInt(base?.stepPriceRaw ?? rawStepPrice(state.stepPrice)),
-    matchPriceBandBps: parseRawBigInt(rawPriceBandBps(state.priceBandPct)),
+    matchPriceBandBps: parseRawBigInt(rawPriceBandForPanel(base, state)),
   };
 }
 
@@ -857,7 +879,7 @@ function buildAtomicProposalForPanel(
         lock: base!.status !== state.status ? state.status === "locked" : undefined,
         deferredMode: base!.deferredSettlement !== state.deferredSettlement ? state.deferredSettlement : undefined,
         impactNotionalBaseUsdc: base!.impactBaseUsdc !== state.impactBaseUsdc ? parseRawBigInt(rawImpact(state.impactBaseUsdc)) : undefined,
-        markOracleConfig: sameMarkOracleConfig(base!, markOracleConfig) ? undefined : markOracleConfig,
+        markOracleConfig: sameMarkOracleConfigValues(base!, markOracleConfig) ? undefined : markOracleConfig,
       });
 
   if (mode === "update" && built.innerCalls.length === 0) {
@@ -867,34 +889,27 @@ function buildAtomicProposalForPanel(
   return built.transaction;
 }
 
-function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; wallet: string | null; safeInfo: SafeAppInfo | null; marketCount: number }) {
+function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo, marketCount }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; wallet: string | null; walletAddress: Address | null; safeInfo: SafeAppInfo | null; marketCount: number }) {
   const tickerName = marketTickerName(state.symbol);
   const deployment = getDeploymentForEnv(env);
-  const { sendTransaction, isPending: walletPending } = useSendTransaction();
+  const { sendTransactionAsync, isPending: walletPending } = useSendTransaction();
   const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" | "submitted" | "error"; message?: string }>({ status: "idle" });
   const markOracleArgs = [
     `tau=${state.markOracleTimeConstantSeconds}s`,
     `minUpdate=${state.markOracleMinUpdateInterval}s`,
     `maxPremium=${state.markOracleMaxPremiumBps}bps`,
   ];
-  const showUpdateMarkOracle =
-    !!base &&
-    (
-      !base.markOracleConfigured ||
-      base.markOracleTimeConstantSeconds !== state.markOracleTimeConstantSeconds ||
-      base.markOracleMinUpdateInterval !== state.markOracleMinUpdateInterval ||
-      base.markOracleMaxPremiumBps !== state.markOracleMaxPremiumBps
-    );
+  const showUpdateMarkOracle = !!base && hasMarkOracleConfigChange(base, state);
   const showUpdateMarketConfig = !!base && hasPerpsMarketConfigChange(base, state);
   const calls: { fn: string; args: string[]; required: boolean }[] = mode === "open" ? [
     { fn: "openMarket", required: true, args: [
       `name="${tickerName}"`,
       `maxLeverage=${state.maxLeverage}`,
-      `mmr=${rawMmr(state.mmrPct)}`,
+      `mmr=${rawMmrForPanel(base, state)}`,
       `minOrderStep=${state.minOrderStep}`,
       `maxOrderStep=${state.maxOrderStep}`,
       `oiLimit=${state.oiLimitSteps}`,
-      `priceBand=${state.priceBandPct}% (${rawPriceBandBps(state.priceBandPct)} raw)`,
+      `priceBand=${state.priceBandPct}% (${rawPriceBandForPanel(base, state)} raw)`,
     ]},
     ...(state.deferredSettlement ? [{ fn: "setDeferredMode", required: false, args: [`marketId=NEXT`, "deferred=true"] }] : []),
     { fn: "setImpactNotionalBaseUsdc", required: false, args: [`marketId=NEXT`, `base=${rawImpact(state.impactBaseUsdc)}`] },
@@ -903,11 +918,11 @@ function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount }
     ...(showUpdateMarketConfig ? [{ fn: "updateMarketConfig", required: true, args: [
       `marketId=${base?.id ?? "?"}`,
       `maxLeverage=${state.maxLeverage}`,
-      `mmr=${rawMmr(state.mmrPct)}`,
+      `mmr=${rawMmrForPanel(base, state)}`,
       `minOrderStep=${state.minOrderStep}`,
       `maxOrderStep=${state.maxOrderStep}`,
       `oiLimit=${state.oiLimitSteps}`,
-      `priceBand=${state.priceBandPct}% (${rawPriceBandBps(state.priceBandPct)} raw)`,
+      `priceBand=${state.priceBandPct}% (${rawPriceBandForPanel(base, state)} raw)`,
     ]}] : []),
     ...(base && base.status !== state.status && (state.status === "locked" || state.status === "unlocked") ? [{ fn: "setMarketLock", required: false, args: [`marketId=${base.id}`, `locked=${state.status === "locked"}`] }] : []),
     ...(base && base.deferredSettlement !== state.deferredSettlement ? [{ fn: "setDeferredMode", required: false, args: [`marketId=${base.id}`, `deferred=${state.deferredSettlement}`] }] : []),
@@ -958,9 +973,18 @@ function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount }
       if (safeInfo) {
         await submitSafeAppTransaction(transaction);
       } else {
-        sendTransaction({ to: transaction.to, data: transaction.data, value: 0n });
+        if (!walletAddress) {
+          throw new Error("connect wallet before sending transaction");
+        }
+        const gas = await getPublicClient(env).estimateGas({
+          account: walletAddress,
+          to: transaction.to,
+          data: transaction.data,
+          value: 0n,
+        });
+        await sendTransactionAsync({ to: transaction.to, data: transaction.data, value: 0n, gas });
       }
-      setSubmitState({ status: "submitted", message: safeInfo ? "submitted to Safe App" : "wallet transaction prompted" });
+      setSubmitState({ status: "submitted", message: safeInfo ? "submitted to Safe App" : "wallet transaction submitted" });
     } catch (error) {
       setSubmitState({ status: "error", message: error instanceof Error ? error.message : "transaction submission failed" });
     }
@@ -1185,6 +1209,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
                 state={editorState}
                 base={tab === "update" ? base : null}
                 wallet={wallet}
+                walletAddress={address ?? null}
                 safeInfo={safeInfo}
                 marketCount={markets.length}
               />

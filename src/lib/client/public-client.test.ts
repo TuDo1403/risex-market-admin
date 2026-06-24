@@ -18,6 +18,7 @@ describe('public client rpc selection', () => {
     expect(viem.http).toHaveBeenCalledWith('https://rpc.risechain.com')
     expect(viem.defineChain).toHaveBeenCalledWith(
       expect.objectContaining({
+        id: 4153,
         rpcUrls: { default: { http: ['https://rpc.risechain.com'] } },
         contracts: {
           multicall3: {

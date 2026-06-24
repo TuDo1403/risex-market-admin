@@ -33,6 +33,7 @@ describe('deployment environment config', () => {
   })
 
   it('uses the default public mainnet rpc unless env overrides it', () => {
+    expect(getDeploymentForEnv('mainnet').chainId).toBe(4153)
     expect(getDeploymentForEnv('mainnet').rpcUrl).toBe('https://rpc.risechain.com')
 
     const runtime = getRuntimeEnvironment('mainnet', {})
