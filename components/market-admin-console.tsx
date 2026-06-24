@@ -19,7 +19,7 @@ import {
   fmt, rawMmr, rawImpact, rawStepPrice, rawStepSize,
   priceBandBpsToPercent, rawPriceBandBps,
   marketTickerName,
-} from "@/src/lib/lovable-risex";
+} from "@/src/lib/market-domain";
 import { deriveIndexPriceId, deriveMarkPriceId } from "@/src/lib/price-ids";
 import { cn } from "@/src/lib/utils";
 import {

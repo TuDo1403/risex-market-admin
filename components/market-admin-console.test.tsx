@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MarketAdminConsole } from './market-admin-console'
-import { rawMmr, type EnvKey, type Market } from '@/src/lib/lovable-risex'
+import { rawMmr, type EnvKey, type Market } from '@/src/lib/market-domain'
 import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
 
 const hookState = vi.hoisted(() => ({
@@ -74,7 +74,7 @@ function textIncludes(value: string) {
   return (_content: string, node: Element | null) => node?.textContent?.includes(value) ?? false
 }
 
-describe('MarketAdminConsole Lovable source port', () => {
+describe('MarketAdminConsole', () => {
   beforeEach(() => {
     hookState.address = null
     hookState.chainId = 1

@@ -4,7 +4,7 @@
 
 **Goal:** Replace every mocked path in the market-admin console with the real, already-built backend — real GitHub session, real wagmi wallet, real calldata, real access checks, real shadow runs, real execution, real review links — with no mock data anywhere.
 
-**Architecture:** Pure lib modules do all conversion/encoding (TDD, no React). React composes them. The console is split into focused components under `components/console/` so each is independently testable with mocked `next-auth/react` and `wagmi` hooks. `src/lib/lovable-risex.ts` (incorrect mock math) is deleted; the `Market` display type and env metadata move to real modules.
+**Architecture:** Pure lib modules do all conversion/encoding (TDD, no React). React composes them. The console is split into focused components under `components/console/` so each is independently testable with mocked `next-auth/react` and `wagmi` hooks. The legacy fixture/domain module with incorrect mock math is deleted; the `Market` display type and env metadata move to real modules.
 
 **Tech Stack:** Next.js 15 App Router, React 19, viem 2, wagmi + @tanstack/react-query (new), next-auth v5, vitest + @testing-library/react.
 
@@ -335,7 +335,7 @@ Expected: FAIL (stepPrice mismatch / type not exported).
 
 - [ ] **Step 3: Edit `src/lib/market-view.ts`**
 
-- Define and export the `Market` type above (remove the `import type { Market } from './lovable-risex'`).
+- Define and export the `Market` type above (remove the old fixture/domain `Market` import).
 - Remove `DEFAULT_PRICE_PRECISION`; use 18 for both:
 ```ts
 const WAD_DECIMALS = 18
@@ -1557,7 +1557,7 @@ git commit -m "feat(console): real shadow preflight via /api/shadow/run"
 **Files:**
 - Rewrite: `components/market-admin-console.tsx`
 - Modify: `components/market-admin-console.test.tsx`
-- Delete: `src/lib/lovable-risex.ts`
+- Delete: legacy fixture/domain module, if still present.
 
 **Interfaces:**
 - Consumes: all Phase-3 components, `useProposal`, `useWalletClient`/`useAccount`/`useSwitchChain` (wagmi), `useSession`, `sendEoaTransactions` (wallet-eoa), `submitSafeProposal` (safe-app), `checkAccessForCalls` (access-manager) + `createMarketPublicClient` (market-reader), `createPublicClient`.
@@ -1608,12 +1608,12 @@ Behavior:
 
 Run:
 ```bash
-git rm src/lib/lovable-risex.ts
+git rm <legacy-fixture-domain-module>
 ```
 
 - [ ] **Step 3: Rewrite `components/market-admin-console.test.tsx`**
 
-- Replace `import ... from '@/src/lib/lovable-risex'` with `type { Market } from '@/src/lib/market-view'` and `type { MarketAdminEnv } from '@/src/config/deployments'` (alias as `EnvKey`).
+- Replace imports from the legacy fixture/domain module with `type { Market } from '@/src/lib/market-view'` and `type { MarketAdminEnv } from '@/src/config/deployments'` (alias as `EnvKey`).
 - Mock `next-auth/react` (`useSession` returns unauthenticated by default; `signIn`/`signOut` spies) and `wagmi` (`useAccount`, `useConnect`, `useDisconnect`, `useWalletClient`, `useSwitchChain`).
 - Update the `market(...)` factory to the new `Market` shape (already partially done: `status`, `deferredSettlement`, `mmrPct: string`, no precision fields) — remove `stepPriceRaw` precision-8 assumptions if asserted.
 - Rewrite the four scenarios to the real UI:

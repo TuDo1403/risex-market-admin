@@ -35,7 +35,7 @@ review links). The UI component `components/market-admin-console.tsx` ignores al
 all of it: it fakes GitHub sign-in (`setGithub("@rise-ops")`), fakes wallet connect
 (`setWallet("0x9F2c…")`), builds string-only proposal args (not calldata), runs a
 `setTimeout` shadow simulation, and renders heuristic validation. The
-`src/lib/lovable-risex.ts` module it depends on is **incorrect mock math**, not just
+the legacy fixture/domain module it depends on is **incorrect mock math**, not just
 fixtures.
 
 Goal: replace the mock layer end-to-end so every surfaced value and action is real —
@@ -59,12 +59,12 @@ The canonical contract interface
    update flow.
 
 The real numeric converters live in `src/lib/numbers.ts` and differ fundamentally from
-`lovable-risex.ts`:
+the old fixture/domain converters:
 
 - `maintenanceMarginFactor = 100·WAD² / (percent·WAD)` (inverse relationship).
-  `lovable-risex.rawMmr = pct·1e16` is wrong.
+  the old `rawMmr = pct·1e16` conversion is wrong.
 - `impactNotionalBaseUsdc` is stored in **whole USDC** (50 = 50 USDC); per the contract
-  comment. `lovable-risex.rawImpact = usdc·1e6` is wrong.
+  comment. the old `rawImpact = usdc·1e6` conversion is wrong.
 - **Both `stepSize` and `stepPrice` are 18-decimal (WAD)** — verified against the live
   testnet contract (BTC/USDC market 1: `stepSize=1e12`=0.000001, `stepPrice=1e17`=0.1).
   So `market-view.ts` formatting `stepPrice` at precision-8 is a bug, and
@@ -96,7 +96,7 @@ Domain rules (from user + `risex-contracts/config/*.toml`, `script/ops/SetupMark
 Full end-to-end (user-approved). Affects: `abis.ts`, `proposal-builder.ts`,
 `deployments.ts`, `market-view.ts`, new `price-ids.ts`, new `providers.tsx`, new
 `wagmi.ts`, `app/layout.tsx`, `app/page.tsx`, `components/market-admin-console.tsx`,
-and tests. Deletes `src/lib/lovable-risex.ts`.
+and tests. Removes the legacy fixture/domain module.
 
 Out of scope: changing the backend API routes, the review store, the shadow lib, or the
 authz helper (all already real). No unrelated refactors.
@@ -129,7 +129,7 @@ authz helper (all already real). No unrelated refactors.
   `deriveMarkPriceId(symbol)` via viem `keccak256(toHex(...))`. Symbol is the base
   (uppercased), e.g. `AERO`.
 - **`src/lib/market-view.ts`**: owns the `Market` display type (moved from
-  lovable-risex), reshaped to `status: 'unlocked'|'locked'` + `deferredSettlement:
+  the legacy fixture module), reshaped to `status: 'unlocked'|'locked'` + `deferredSettlement:
   boolean` + `mmrPct: string` (no `pricePrecision`/`tokenDecimals`). Fix `stepPrice`
   formatting to 18 decimals (was 8). `LiveMarket` gains `deferredSettlement` read from
   `OrdersManager.isDeferredMode`; `market-reader` takes the ordersManager address.

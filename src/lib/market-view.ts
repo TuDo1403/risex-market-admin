@@ -4,7 +4,7 @@ import {
   PROTOCOL_TOKEN_DECIMALS,
   QUOTE_SYMBOL,
   type Market,
-} from '@/src/lib/lovable-risex'
+} from '@/src/lib/market-domain'
 import { formatRawDecimal, maintenanceMarginFactorToMmrPercent } from '@/src/lib/numbers'
 
 export function liveMarketToDisplayMarket(live: LiveMarket): Market {

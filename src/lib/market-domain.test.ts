@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { priceBandBpsToPercent, rawPriceBandBps } from './lovable-risex'
+import { priceBandBpsToPercent, rawPriceBandBps } from './market-domain'
 
 describe('RISEx market display conversions', () => {
   it('converts match price band using the RISEx 1e6 denominator', () => {
