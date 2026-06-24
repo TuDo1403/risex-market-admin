@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 
 import './globals.css'
+import { Providers } from './providers'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -36,7 +37,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body>
         <div className="scanlines" />
-        <div className="page-shell">{children}</div>
+        <Providers>
+          <div className="page-shell">{children}</div>
+        </Providers>
       </body>
     </html>
   )
