@@ -6,7 +6,7 @@ import { getDeploymentForEnv, TESTNET_RPC_URL } from '@/src/config/deployments'
 
 // RISE testnet/staging/shadow all run chainId 11155931; mainnet is a placeholder on the
 // same id until a real chain/RPC is provisioned. A single registered chain is enough for
-// wallet signing — market reads go through the /api/markets server route.
+// wallet signing — market reads run client-side via getPublicClient against RISE RPC.
 export const riseTestnet = defineChain({
   id: 11155931,
   name: 'RISE Testnet',
