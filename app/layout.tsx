@@ -21,6 +21,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: 'RISEx Market Admin',
   description: 'Operational console for RISEx perps market config proposals.',
+  manifest: '/manifest.json',
   icons: {
     icon: [{ url: '/icons/rise.svg', type: 'image/svg+xml' }],
   },
