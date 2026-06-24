@@ -4,7 +4,7 @@ export const perpsMarketConfigAbi = [
     name: 'getTotalMarkets',
     stateMutability: 'view',
     inputs: [],
-    outputs: [{ name: '', type: 'uint16' }],
+    outputs: [{ name: '', type: 'uint256' }],
   },
   {
     type: 'function',
@@ -68,13 +68,8 @@ export const perpsMarketConfigAbi = [
             name: 'bookConfig',
             type: 'tuple',
             components: [
-              { name: 'base', type: 'address' },
-              { name: 'quote', type: 'address' },
-              { name: 'pricePrecision', type: 'uint8' },
-              { name: 'sizePrecision', type: 'uint8' },
-              { name: 'tickSize', type: 'uint64' },
-              { name: 'minSize', type: 'uint64' },
-              { name: 'maxSize', type: 'uint64' },
+              { name: 'stepSize', type: 'uint64' },
+              { name: 'stepPrice', type: 'uint64' },
             ],
           },
           { name: 'markPriceId', type: 'bytes32' },
@@ -90,7 +85,7 @@ export const perpsMarketConfigAbi = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'marketId', type: 'uint16' },
-      { name: 'locked', type: 'bool' },
+      { name: 'unlocked', type: 'bool' },
     ],
     outputs: [],
   },
@@ -161,10 +156,7 @@ export const ordersManagerAbi = [
     type: 'function',
     name: 'isDeferredMode',
     stateMutability: 'view',
-    inputs: [
-      { name: 'protocol', type: 'address' },
-      { name: 'marketId', type: 'uint16' },
-    ],
+    inputs: [{ name: 'marketId', type: 'uint16' }],
     outputs: [{ name: '', type: 'bool' }],
   },
 ] as const

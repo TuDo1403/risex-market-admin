@@ -14,13 +14,8 @@ import type { PerpsMarketConfig } from './rpc/market-reader'
 export const MULTISEND_CALL_ONLY = '0x9641d764fc13c8B624c04430C7356C1C7C8102e2' as Address
 
 export type OrdersBookConfig = {
-  base: Address
-  quote: Address
-  pricePrecision: number
-  sizePrecision: number
-  tickSize: bigint
-  minSize: bigint
-  maxSize: bigint
+  stepSize: bigint
+  stepPrice: bigint
 }
 
 export type InnerCall = {
