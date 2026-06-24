@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ENVIRONMENTS,
   getDeploymentForEnv,
+  getBrowserRpcUrl,
   getRuntimeEnvironment,
   isMarketAdminEnv,
 } from './deployments'
@@ -35,6 +36,7 @@ describe('deployment environment config', () => {
   it('uses mainnet addresses for shadow execution with the shadow rpc and executor', () => {
     expect(getDeploymentForEnv('shadow')).toMatchObject({
       env: 'shadow',
+      chainId: 4153,
       rpcUrl: 'http://shadow-rpc.riselabs.xyz',
       multicall3Address: '0xcA11bde05977b3631167028862bE2a173976CA11',
       shadowExecutor: '0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D',
@@ -70,6 +72,11 @@ describe('deployment environment config', () => {
 
     expect(runtime.rpcUrl).toBe('http://localhost:8545')
     expect(runtime.addresses.perps).toBe('0x53f10fAcFC8965750494E6965F5d6dA39B41d852')
+  })
+
+  it('uses same-origin proxy path for browser shadow rpc to avoid CORS and mixed content', () => {
+    expect(getBrowserRpcUrl('shadow')).toBe('/rpc/shadow')
+    expect(getBrowserRpcUrl('mainnet')).toBe('https://rpc.risechain.com')
   })
 
   it('exposes the USDC quote token per environment', () => {

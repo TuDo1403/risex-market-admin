@@ -1,0 +1,5 @@
+{
+  "name": "RISEx Market Admin",
+  "description": "Operational console for RISEx perps market configuration proposals.",
+  "iconPath": "icons/safe-app.svg"
+}

@@ -1,5 +1,10 @@
 import type { LiveMarket } from '@/src/lib/rpc/market-reader'
-import { PROTOCOL_TOKEN_DECIMALS, QUOTE_SYMBOL, type Market } from '@/src/lib/lovable-risex'
+import {
+  DEFAULT_MARK_ORACLE_CONFIG,
+  PROTOCOL_TOKEN_DECIMALS,
+  QUOTE_SYMBOL,
+  type Market,
+} from '@/src/lib/lovable-risex'
 import { formatRawDecimal, maintenanceMarginFactorToMmrPercent } from '@/src/lib/numbers'
 
 export function liveMarketToDisplayMarket(live: LiveMarket): Market {
@@ -9,6 +14,7 @@ export function liveMarketToDisplayMarket(live: LiveMarket): Market {
       ? maintenanceMarginFactorToMmrPercent(live.maintenanceMarginFactor, 18)
       : '0'
   const impactBaseUsdc = live.impactNotionalBaseUsdc ?? 0n
+  const markOracle = live.markOracleConfig
 
   return {
     id: live.id,
@@ -22,7 +28,7 @@ export function liveMarketToDisplayMarket(live: LiveMarket): Market {
     // On-chain stepSize and stepPrice are both WAD-scaled (1e18), verified against
     // the live contract (BTC/USDC: stepPrice 1e17 = $0.1). They are NOT price-feed
     // precision (8); using that here mis-scales stepPrice by 1e10.
-    stepSize: Number(formatRawDecimal(live.stepSize, PROTOCOL_TOKEN_DECIMALS)),
+    stepSize: formatRawDecimal(live.stepSize, PROTOCOL_TOKEN_DECIMALS),
     stepSizeRaw: live.stepSize.toString(),
     stepPrice: Number(formatRawDecimal(live.stepPrice, PROTOCOL_TOKEN_DECIMALS)),
     stepPriceRaw: live.stepPrice.toString(),
@@ -32,6 +38,15 @@ export function liveMarketToDisplayMarket(live: LiveMarket): Market {
     impactBaseUsdc: Number(impactBaseUsdc),
     impactBaseRaw: impactBaseUsdc.toString(),
     priceBandBps: Number(live.matchPriceBandBps),
+    markOracleTimeConstantSeconds: markOracle
+      ? Number(markOracle.timeConstantSeconds)
+      : DEFAULT_MARK_ORACLE_CONFIG.timeConstantSeconds,
+    markOracleMinUpdateInterval: markOracle
+      ? Number(markOracle.minUpdateInterval)
+      : DEFAULT_MARK_ORACLE_CONFIG.minUpdateInterval,
+    markOracleMaxPremiumBps: markOracle
+      ? Number(markOracle.maxPremiumBps)
+      : DEFAULT_MARK_ORACLE_CONFIG.maxPremiumBps,
     deployedAt: 'live',
   }
 }

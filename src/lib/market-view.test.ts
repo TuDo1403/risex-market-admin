@@ -21,6 +21,11 @@ describe('live market display adapter', () => {
       stepPrice: 10_000_000_000_000n,
       matchPriceBandBps: 50n,
       impactNotionalBaseUsdc: 50n,
+      markOracleConfig: {
+        timeConstantSeconds: 450n,
+        minUpdateInterval: 10n,
+        maxPremiumBps: 30n,
+      },
     })
 
     expect(market).toMatchObject({
@@ -32,7 +37,7 @@ describe('live market display adapter', () => {
       maxLeverage: 3,
       mmrPct: '22.222222222222222222',
       mmrRaw: '4500000000000000000',
-      stepSize: 1,
+      stepSize: '1',
       stepSizeRaw: '1000000000000000000',
       stepPrice: 0.00001,
       stepPriceRaw: '10000000000000',
@@ -42,6 +47,9 @@ describe('live market display adapter', () => {
       impactBaseUsdc: 50,
       impactBaseRaw: '50',
       priceBandBps: 50,
+      markOracleTimeConstantSeconds: 450,
+      markOracleMinUpdateInterval: 10,
+      markOracleMaxPremiumBps: 30,
     })
   })
 

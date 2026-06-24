@@ -26,8 +26,10 @@ export type DeploymentEnvironment = {
 type RuntimeEnv = NodeJS.ProcessEnv | Record<string, string | undefined>
 
 const RISE_TESTNET_CHAIN_ID = 11155931
+export const SHADOW_CHAIN_ID = 4153
 const MAINNET_RPC_URL = 'https://rpc.risechain.com'
-const SHADOW_RPC_URL = 'http://shadow-rpc.riselabs.xyz'
+export const SHADOW_RPC_URL = 'http://shadow-rpc.riselabs.xyz'
+export const BROWSER_SHADOW_RPC_PATH = '/rpc/shadow'
 export const TESTNET_RPC_URL = 'https://testnet.riselabs.xyz'
 const SHADOW_EXECUTOR = getAddress('0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D')
 const TESTNET_USDC = getAddress('0x8c49BaEeC2Ea2356598Ef33eA5dd52267643E677')
@@ -84,7 +86,7 @@ const baseDeployments: Record<MarketAdminEnv, DeploymentEnvironment> = {
   },
   shadow: {
     env: 'shadow',
-    chainId: RISE_TESTNET_CHAIN_ID,
+    chainId: SHADOW_CHAIN_ID,
     rpcUrl: SHADOW_RPC_URL,
     multicall3Address: MULTICALL3_ADDRESS,
     source: 'risex-contracts/script/data/mainnet/deployment.json',
@@ -99,6 +101,14 @@ export function isMarketAdminEnv(value: string): value is MarketAdminEnv {
 
 export function getDeploymentForEnv(env: MarketAdminEnv): DeploymentEnvironment {
   return baseDeployments[env]
+}
+
+export function getBrowserRpcUrl(env: MarketAdminEnv): string {
+  if (env === 'shadow') {
+    return BROWSER_SHADOW_RPC_PATH
+  }
+
+  return getDeploymentForEnv(env).rpcUrl
 }
 
 export function getRuntimeEnvironment(

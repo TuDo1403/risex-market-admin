@@ -2,11 +2,16 @@ import { defineChain } from 'viem'
 import { createConfig, http } from 'wagmi'
 import { injected } from 'wagmi/connectors'
 
-import { getDeploymentForEnv, TESTNET_RPC_URL } from '@/src/config/deployments'
+import {
+  getDeploymentForEnv,
+  SHADOW_CHAIN_ID,
+  SHADOW_RPC_URL,
+  TESTNET_RPC_URL,
+} from '@/src/config/deployments'
 
-// RISE testnet/staging/shadow all run chainId 11155931; mainnet is a placeholder on the
-// same id until a real chain/RPC is provisioned. A single registered chain is enough for
-// wallet signing — market reads run client-side via getPublicClient against RISE RPC.
+// RISE testnet/staging/mainnet use chainId 11155931 in current deployments. The
+// shadow fork exposes its own RPC chain id and is registered separately for wallet
+// signing against the fork.
 export const riseTestnet = defineChain({
   id: 11155931,
   name: 'RISE Testnet',
@@ -19,9 +24,24 @@ export const riseTestnet = defineChain({
   },
 })
 
+export const riseShadow = defineChain({
+  id: SHADOW_CHAIN_ID,
+  name: 'RISE Mainnet Shadow',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: [SHADOW_RPC_URL] } },
+  contracts: {
+    multicall3: {
+      address: getDeploymentForEnv('shadow').multicall3Address,
+    },
+  },
+})
+
 export const wagmiConfig = createConfig({
-  chains: [riseTestnet],
+  chains: [riseTestnet, riseShadow],
   connectors: [injected()],
-  transports: { [riseTestnet.id]: http(TESTNET_RPC_URL) },
+  transports: {
+    [riseTestnet.id]: http(TESTNET_RPC_URL),
+    [riseShadow.id]: http(SHADOW_RPC_URL),
+  },
   ssr: true,
 })

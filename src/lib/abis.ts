@@ -184,6 +184,35 @@ export const ordersManagerAbi = [
 export const risexOracleAbi = [
   {
     type: 'function',
+    name: 'configureMarkOracle',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'marketId', type: 'uint16' },
+      { name: 'timeConstantSeconds', type: 'uint32' },
+      { name: 'minUpdateInterval', type: 'uint32' },
+      { name: 'maxPremiumBps', type: 'uint16' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'getMarkOracleConfig',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint16' }],
+    outputs: [
+      {
+        name: 'config',
+        type: 'tuple',
+        components: [
+          { name: 'timeConstantSeconds', type: 'uint32' },
+          { name: 'minUpdateInterval', type: 'uint32' },
+          { name: 'maxPremiumBps', type: 'uint16' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'function',
     name: 'getIndexPrice',
     stateMutability: 'view',
     inputs: [{ name: 'marketId', type: 'uint16' }],
