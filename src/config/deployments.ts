@@ -1,6 +1,6 @@
 import { getAddress, type Address } from 'viem'
 
-export const ENVIRONMENTS = ['testnet', 'staging', 'mainnet', 'shadow'] as const
+export const ENVIRONMENTS = ['testnet', 'staging', 'mainnet'] as const
 
 export type MarketAdminEnv = (typeof ENVIRONMENTS)[number]
 
@@ -20,18 +20,13 @@ export type DeploymentEnvironment = {
   multicall3Address: Address
   addresses: DeploymentAddresses
   source: string
-  shadowExecutor?: Address
 }
 
 type RuntimeEnv = NodeJS.ProcessEnv | Record<string, string | undefined>
 
 const RISE_TESTNET_CHAIN_ID = 11155931
-export const SHADOW_CHAIN_ID = 4153
 const MAINNET_RPC_URL = 'https://rpc.risechain.com'
-export const SHADOW_RPC_URL = 'http://shadow-rpc.riselabs.xyz'
-export const BROWSER_SHADOW_RPC_PATH = '/rpc/shadow'
 export const TESTNET_RPC_URL = 'https://testnet.riselabs.xyz'
-const SHADOW_EXECUTOR = getAddress('0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D')
 const TESTNET_USDC = getAddress('0x8c49BaEeC2Ea2356598Ef33eA5dd52267643E677')
 const MAINNET_USDC = getAddress('0xe436820ba0C69702c1d3E601d421c0eF38262739')
 const MULTICALL3_ADDRESS = getAddress('0xcA11bde05977b3631167028862bE2a173976CA11')
@@ -84,31 +79,14 @@ const baseDeployments: Record<MarketAdminEnv, DeploymentEnvironment> = {
     source: 'risex-contracts/script/data/mainnet/deployment.json',
     addresses: mainnetAddresses,
   },
-  shadow: {
-    env: 'shadow',
-    chainId: SHADOW_CHAIN_ID,
-    rpcUrl: SHADOW_RPC_URL,
-    multicall3Address: MULTICALL3_ADDRESS,
-    source: 'risex-contracts/script/data/mainnet/deployment.json',
-    addresses: mainnetAddresses,
-    shadowExecutor: SHADOW_EXECUTOR,
-  },
 }
 
 export function isMarketAdminEnv(value: string): value is MarketAdminEnv {
-  return ENVIRONMENTS.includes(value as MarketAdminEnv)
+  return ENVIRONMENTS.includes(value as (typeof ENVIRONMENTS)[number])
 }
 
 export function getDeploymentForEnv(env: MarketAdminEnv): DeploymentEnvironment {
   return baseDeployments[env]
-}
-
-export function getBrowserRpcUrl(env: MarketAdminEnv): string {
-  if (env === 'shadow') {
-    return BROWSER_SHADOW_RPC_PATH
-  }
-
-  return getDeploymentForEnv(env).rpcUrl
 }
 
 export function getRuntimeEnvironment(
@@ -130,10 +108,6 @@ export function getRuntimeEnvironment(
 
   if (env === 'staging' && runtimeEnv.STAGING_RPC_URL) {
     return { ...deployment, rpcUrl: runtimeEnv.STAGING_RPC_URL }
-  }
-
-  if (env === 'shadow' && runtimeEnv.SHADOW_RPC_URL) {
-    return { ...deployment, rpcUrl: runtimeEnv.SHADOW_RPC_URL }
   }
 
   return deployment

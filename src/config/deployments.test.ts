@@ -4,16 +4,15 @@ import { describe, expect, it } from 'vitest'
 import {
   ENVIRONMENTS,
   getDeploymentForEnv,
-  getBrowserRpcUrl,
   getRuntimeEnvironment,
   isMarketAdminEnv,
 } from './deployments'
 
 describe('deployment environment config', () => {
   it('lists only the supported market-admin environments', () => {
-    expect(ENVIRONMENTS).toEqual(['testnet', 'staging', 'mainnet', 'shadow'])
+    expect(ENVIRONMENTS).toEqual(['testnet', 'staging', 'mainnet'])
     expect(isMarketAdminEnv('testnet')).toBe(true)
-    expect(isMarketAdminEnv('shadow')).toBe(true)
+    expect(isMarketAdminEnv('shadow')).toBe(false)
     expect(isMarketAdminEnv('devnet')).toBe(false)
   })
 
@@ -33,21 +32,6 @@ describe('deployment environment config', () => {
     })
   })
 
-  it('uses mainnet addresses for shadow execution with the shadow rpc and executor', () => {
-    expect(getDeploymentForEnv('shadow')).toMatchObject({
-      env: 'shadow',
-      chainId: 4153,
-      rpcUrl: 'http://shadow-rpc.riselabs.xyz',
-      multicall3Address: '0xcA11bde05977b3631167028862bE2a173976CA11',
-      shadowExecutor: '0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D',
-      addresses: {
-        accessManager: '0x1BEe39C01907E3018b7ec2021Cf73F70541b36cC',
-        ordersManager: '0xE03C1D5081eb2d0E6bFd62A949C5b12eFa44F2cD',
-        perps: '0x53f10fAcFC8965750494E6965F5d6dA39B41d852',
-      },
-    })
-  })
-
   it('uses the default public mainnet rpc unless env overrides it', () => {
     expect(getDeploymentForEnv('mainnet').rpcUrl).toBe('https://rpc.risechain.com')
 
@@ -63,20 +47,6 @@ describe('deployment environment config', () => {
 
     expect(runtime.rpcUrl).toBe('https://example-mainnet.invalid')
     expect(runtime.addresses.perps).toBe('0x53f10fAcFC8965750494E6965F5d6dA39B41d852')
-  })
-
-  it('lets shadow rpc come from env without mutating mainnet addresses', () => {
-    const runtime = getRuntimeEnvironment('shadow', {
-      SHADOW_RPC_URL: 'http://localhost:8545',
-    })
-
-    expect(runtime.rpcUrl).toBe('http://localhost:8545')
-    expect(runtime.addresses.perps).toBe('0x53f10fAcFC8965750494E6965F5d6dA39B41d852')
-  })
-
-  it('uses same-origin proxy path for browser shadow rpc to avoid CORS and mixed content', () => {
-    expect(getBrowserRpcUrl('shadow')).toBe('/rpc/shadow')
-    expect(getBrowserRpcUrl('mainnet')).toBe('https://rpc.risechain.com')
   })
 
   it('exposes the USDC quote token per environment', () => {

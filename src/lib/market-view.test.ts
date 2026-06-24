@@ -96,6 +96,34 @@ describe('live market display adapter', () => {
     expect(market.deferredSettlement).toBe(true)
   })
 
+  it('prefills default editable mark oracle values when a live market has no configured mark oracle', () => {
+    const market = liveMarketToDisplayMarket({
+      id: 3,
+      name: 'ARB/USD',
+      quote,
+      unlocked: true,
+      maxLeverage: 15n,
+      maintenanceMarginFactor: 33_333_333_333_333_333_333n,
+      minOrderStep: 50n,
+      maxOrderStep: 500_000n,
+      oiLimitSteps: 2_000_000n,
+      stepSize: 1_000_000_000_000_000_000n,
+      stepPrice: 10_000_000_000_000n,
+      matchPriceBandBps: 250n,
+      impactNotionalBaseUsdc: 60n,
+      markOracleConfig: {
+        timeConstantSeconds: 0n,
+        minUpdateInterval: 0n,
+        maxPremiumBps: 0n,
+      },
+    })
+
+    expect(market.markOracleConfigured).toBe(false)
+    expect(market.markOracleTimeConstantSeconds).toBe(480)
+    expect(market.markOracleMinUpdateInterval).toBe(10)
+    expect(market.markOracleMaxPremiumBps).toBe(50)
+  })
+
   it('keeps malformed zero-maintenance rows visible instead of throwing', () => {
     const market = liveMarketToDisplayMarket({
       id: 99,

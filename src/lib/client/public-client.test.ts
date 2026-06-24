@@ -10,15 +10,20 @@ const viem = vi.hoisted(() => ({
 vi.mock('viem', () => viem)
 
 describe('public client rpc selection', () => {
-  it('uses same-origin proxy path for shadow browser reads', async () => {
+  it('uses the selected deployment rpc and multicall address', async () => {
     const { getPublicClient } = await import('./public-client')
 
-    getPublicClient('shadow')
+    getPublicClient('mainnet')
 
-    expect(viem.http).toHaveBeenCalledWith('/rpc/shadow')
+    expect(viem.http).toHaveBeenCalledWith('https://rpc.risechain.com')
     expect(viem.defineChain).toHaveBeenCalledWith(
       expect.objectContaining({
-        rpcUrls: { default: { http: ['/rpc/shadow'] } },
+        rpcUrls: { default: { http: ['https://rpc.risechain.com'] } },
+        contracts: {
+          multicall3: {
+            address: '0xcA11bde05977b3631167028862bE2a173976CA11',
+          },
+        },
       }),
     )
   })

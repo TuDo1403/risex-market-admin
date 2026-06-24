@@ -3,9 +3,8 @@
 import Image from 'next/image'
 import type React from 'react'
 import { useEffect, useMemo, useState } from "react";
-import { getAddress } from 'viem';
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi'
-import { getBrowserRpcUrl, getDeploymentForEnv } from "@/src/config/deployments";
+import { getDeploymentForEnv } from "@/src/config/deployments";
 import { getPublicClient } from "@/src/lib/client/public-client";
 import { liveMarketToDisplayMarket } from "@/src/lib/market-view";
 import { readLiveMarkets } from "@/src/lib/rpc/market-reader";
@@ -13,7 +12,6 @@ import type { MarkOracleConfig } from "@/src/lib/rpc/market-reader";
 import { readOpenOracleValidation, readOracleValidation } from "@/src/lib/rpc/oracle-validation";
 import { encodeReview } from "@/src/lib/review-link";
 import { detectSafeApp, submitSafeAppTransaction, type SafeAppInfo } from "@/src/lib/safe-app";
-import { createEip1193TransactionSigner, createShadowWalletClient, executeShadowPreflight, type Eip1193Provider, type ShadowPreflightResult } from "@/src/lib/shadow";
 import { buildOpenMarketProposal, buildUpdateMarketProposal, type AtomicAccessManagerTx } from "@/src/lib/proposal-builder";
 import {
   ENVS, EnvKey, Market, AERO_TEMPLATE, DEFAULT_MARK_ORACLE_CONFIG, QUOTE_SYMBOL,
@@ -584,40 +582,15 @@ function shortHex(value: string | null) {
   return `${value.slice(0, 10)}…${value.slice(-6)}`;
 }
 
-function getInjectedProvider(): Eip1193Provider {
-  const provider =
-    (globalThis as typeof globalThis & { ethereum?: Eip1193Provider }).ethereum ??
-    (typeof window === "undefined"
-      ? undefined
-      : (window as Window & { ethereum?: Eip1193Provider }).ethereum);
-  if (!provider) {
-    throw new Error("injected wallet provider not found");
-  }
-  return provider;
-}
-
-async function getInjectedAccount(provider: Eip1193Provider): Promise<string | null> {
-  const accounts = await provider.request({ method: "eth_accounts" });
-  if (Array.isArray(accounts) && typeof accounts[0] === "string") {
-    return accounts[0];
-  }
-
-  const requestedAccounts = await provider.request({ method: "eth_requestAccounts" });
-  if (Array.isArray(requestedAccounts) && typeof requestedAccounts[0] === "string") {
-    return requestedAccounts[0];
-  }
-
-  return null;
-}
-
 function isPositiveRaw(raw: string) {
   return /^\d+$/.test(raw) && BigInt(raw) > 0n;
 }
 
-function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marketId }: { env: EnvKey; wallet: string | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null }) {
+function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marketId, base }: { env: EnvKey; wallet: string | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null; base?: Market | null }) {
   const [oracleValidation, setOracleValidation] = useState<OracleValidationState>({ status: "idle" });
   const expectedIndexPriceId = state.symbol ? deriveIndexPriceId(state.symbol) : "";
   const expectedMarkPriceId = state.symbol ? deriveMarkPriceId(state.symbol) : "";
+  const willConfigureMissingMarkOracle = mode === "update" && base?.markOracleConfigured === false;
 
   useEffect(() => {
     if (!state.symbol || (mode === "update" && (marketId === null || marketId === undefined))) {
@@ -678,15 +651,19 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
               oracleValidation.status === "ok"
                 ? oracleValidation.validation.indexPriceIdMatches && oracleValidation.validation.markPriceIdMatches
                   ? "ok"
-                  : "fail"
+                  : willConfigureMissingMarkOracle && oracleValidation.validation.indexPriceIdMatches
+                    ? "warn"
+                    : "fail"
                 : oracleValidation.status === "error"
-                  ? "fail"
+                  ? willConfigureMissingMarkOracle ? "warn" : "fail"
                   : "pending",
             detail:
               oracleValidation.status === "ok"
-                ? `index ${shortHex(oracleValidation.validation.actualIndexPriceId)} · mark ${shortHex(oracleValidation.validation.actualMarkPriceId)}`
+                ? willConfigureMissingMarkOracle && !oracleValidation.validation.markPriceIdMatches
+                  ? `index ${shortHex(oracleValidation.validation.actualIndexPriceId)} · mark oracle will be configured`
+                  : `index ${shortHex(oracleValidation.validation.actualIndexPriceId)} · mark ${shortHex(oracleValidation.validation.actualMarkPriceId)}`
                 : oracleValidation.status === "error"
-                  ? oracleValidation.message
+                  ? willConfigureMissingMarkOracle ? "mark oracle will be configured" : oracleValidation.message
                   : mode === "open"
                     ? `checking Stork feeds for index ${shortHex(expectedIndexPriceId)} · mark ${shortHex(expectedMarkPriceId)}`
                     : "checking configured Stork IDs",
@@ -698,15 +675,19 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
               oracleValidation.status === "ok"
                 ? oracleValidation.validation.indexPriceLive && oracleValidation.validation.markPriceLive
                   ? "ok"
-                  : "fail"
+                  : willConfigureMissingMarkOracle && oracleValidation.validation.indexPriceLive
+                    ? "warn"
+                    : "fail"
                 : oracleValidation.status === "error"
-                  ? "fail"
+                  ? willConfigureMissingMarkOracle ? "warn" : "fail"
                   : "pending",
             detail:
               oracleValidation.status === "ok"
-                ? `index ${oracleValidation.validation.indexPrice ?? "missing"} · mark ${oracleValidation.validation.markPrice ?? "missing"}`
+                ? willConfigureMissingMarkOracle && !oracleValidation.validation.markPriceLive
+                  ? `index ${oracleValidation.validation.indexPrice ?? "missing"} · mark oracle will be configured`
+                  : `index ${oracleValidation.validation.indexPrice ?? "missing"} · mark ${oracleValidation.validation.markPrice ?? "missing"}`
                 : oracleValidation.status === "error"
-                  ? oracleValidation.message
+                  ? willConfigureMissingMarkOracle ? "mark oracle will be configured" : oracleValidation.message
                   : mode === "open" ? "reading Stork feed prices" : "reading RISExOracle prices",
           },
         ];
@@ -735,9 +716,6 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
     },
     { k: "nextId", label: mode === "open" ? "Next market id" : "Existing market id", s: "ok", detail: mode === "open" ? `${marketCount + 1}` : "matched" },
     ...oracleItems,
-    ...(env === "mainnet"
-      ? [{ k: "shadow", label: "Shadow run", s: "warn" as CheckState, detail: "required before transaction submission" }]
-      : []),
     {
       k: "wallet",
       label: "Signer",
@@ -762,123 +740,6 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
           </div>
         ))}
       </div>
-    </section>
-  );
-}
-
-/* ----------------------------- Shadow Preflight ------------------------ */
-
-function ShadowPreflight({
-  env,
-  mode,
-  state,
-  base,
-  wallet,
-  marketCount,
-  onResult,
-}: {
-  env: EnvKey;
-  mode: "open" | "update";
-  state: EditorState;
-  base: Market | null;
-  wallet: string | null;
-  marketCount: number;
-  onResult: (result: ShadowPreflightResult | null) => void;
-}) {
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<ShadowPreflightResult | null>(null);
-  const proposal = useMemo(() => {
-    try {
-      return { transaction: buildAtomicProposalForPanel(env, mode, state, base, marketCount), error: null };
-    } catch (error) {
-      return { transaction: null, error: error instanceof Error ? error.message : "invalid proposal values" };
-    }
-  }, [base, env, marketCount, mode, state]);
-  const passed = result?.status === "passed";
-  const failed = result?.status === "failed";
-  const pre = result?.preTotalMarkets ?? marketCount;
-  const post = result?.status === "passed" ? result.postTotalMarkets : mode === "open" ? pre + 1 : pre;
-
-  async function run() {
-    if (!proposal.transaction) return;
-    setRunning(true);
-    setResult(null);
-    onResult(null);
-    try {
-      const deployment = getDeploymentForEnv("shadow");
-      const provider = getInjectedProvider();
-      const injectedAccount = await getInjectedAccount(provider);
-      const signingWallet = injectedAccount ?? wallet;
-      if (!signingWallet) {
-        throw new Error("connect a wallet before running shadow preflight");
-      }
-      const signingAccount = getAddress(signingWallet);
-      const signer = createEip1193TransactionSigner(provider);
-      const client = await createShadowWalletClient(getBrowserRpcUrl("shadow"), signer);
-      const next = await executeShadowPreflight({
-        client,
-        executor: signingAccount,
-        perpsAddress: deployment.addresses.perps,
-        transaction: proposal.transaction,
-      });
-      setResult(next);
-      onResult(next);
-    } catch (error) {
-      const next: ShadowPreflightResult = {
-        status: "failed",
-        txHashes: [],
-        error: error instanceof Error ? error.message : "shadow preflight failed",
-      };
-      setResult(next);
-      onResult(next);
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  return (
-    <section className="panel">
-      <div className="panel-header">
-        <span className="panel-title">Shadow preflight</span>
-        <div className="flex items-center gap-1.5">
-          {passed && <Chip tone="primary"><Check className="h-3 w-3" /> passed</Chip>}
-          {failed && <Chip tone="destructive"><X className="h-3 w-3" /> failed</Chip>}
-          <Btn size="sm" variant={passed ? "outline" : "primary"} disabled={running || !proposal.transaction} onClick={run}>
-            {running ? <><Loader2 className="h-3 w-3 animate-spin" /> running</> : <><Zap className="h-3 w-3" /> run on shadow</>}
-          </Btn>
-        </div>
-      </div>
-      {!result && !running && (
-        <div className="p-3 text-[11px] font-mono text-muted-foreground">
-          {proposal.error ?? "Required for mainnet submission. Sends the exact AccessManager transaction to the shadow RPC endpoint and reads post-state."}
-        </div>
-      )}
-      {(running || result) && (
-        <div className="p-3 space-y-2">
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="border border-border bg-surface-2 rounded-sm py-2">
-              <div className="text-[9px] uppercase font-mono text-muted-foreground">pre · totalMarkets</div>
-              <div className="font-mono text-[16px]">{pre}</div>
-            </div>
-            <div className="border border-border bg-surface-2 rounded-sm py-2">
-              <div className="text-[9px] uppercase font-mono text-muted-foreground">delta</div>
-              <div className="font-mono text-[16px] text-primary">{mode === "open" ? "+1" : "Δ config"}</div>
-            </div>
-            <div className="border border-border bg-surface-2 rounded-sm py-2">
-              <div className="text-[9px] uppercase font-mono text-muted-foreground">post · totalMarkets</div>
-              <div className="font-mono text-[16px]">{post}</div>
-            </div>
-          </div>
-          {passed && (
-            <div className="font-mono text-[11px] text-primary truncate" title={result.txHashes.join(", ")}>
-              tx {result.txHashes[0] ?? "submitted"} passed
-            </div>
-          )}
-          {failed && (
-            <div className="font-mono text-[11px] text-destructive break-words">{result.error}</div>
-          )}
-        </div>
-      )}
     </section>
   );
 }
@@ -908,6 +769,10 @@ function buildMarkOracleConfigForPanel(state: EditorState): MarkOracleConfig {
 }
 
 function sameMarkOracleConfig(base: Market, config: MarkOracleConfig) {
+  if (!base.markOracleConfigured) {
+    return false;
+  }
+
   return (
     BigInt(base.markOracleTimeConstantSeconds) === config.timeConstantSeconds &&
     BigInt(base.markOracleMinUpdateInterval) === config.minUpdateInterval &&
@@ -1002,7 +867,7 @@ function buildAtomicProposalForPanel(
   return built.transaction;
 }
 
-function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount, shadowPassed }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; wallet: string | null; safeInfo: SafeAppInfo | null; marketCount: number; shadowPassed: boolean }) {
+function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; wallet: string | null; safeInfo: SafeAppInfo | null; marketCount: number }) {
   const tickerName = marketTickerName(state.symbol);
   const deployment = getDeploymentForEnv(env);
   const { sendTransaction, isPending: walletPending } = useSendTransaction();
@@ -1015,6 +880,7 @@ function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount, 
   const showUpdateMarkOracle =
     !!base &&
     (
+      !base.markOracleConfigured ||
       base.markOracleTimeConstantSeconds !== state.markOracleTimeConstantSeconds ||
       base.markOracleMinUpdateInterval !== state.markOracleMinUpdateInterval ||
       base.markOracleMaxPremiumBps !== state.markOracleMaxPremiumBps
@@ -1068,8 +934,7 @@ function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount, 
     innerCalls: proposal.transaction?.innerCalls.map(c => ({ to: c.to, value: c.value, data: c.data, contractMethod: c.functionName })) ?? [],
   }, null, 2);
 
-  const needsShadow = env === "mainnet";
-  const canSubmit = !!proposal.transaction && (!needsShadow || shadowPassed) && (!!safeInfo || !!wallet) && submitState.status !== "submitting" && !walletPending;
+  const canSubmit = !!proposal.transaction && (!!safeInfo || !!wallet) && submitState.status !== "submitting" && !walletPending;
   const submitLabel = safeInfo ? "submit via Safe App" : "send wallet tx";
   const [shareCopied, setShareCopied] = useState(false);
 
@@ -1142,7 +1007,6 @@ function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount, 
       <div className="px-3 py-2 border-t border-border flex flex-wrap items-center gap-2 justify-between">
         <div className="flex items-center gap-2">
           {proposal.error ? <Chip tone="destructive"><X className="h-3 w-3" /> {proposal.error}</Chip>
-            : needsShadow && !shadowPassed ? <Chip tone="warning"><AlertTriangle className="h-3 w-3" /> run shadow first</Chip>
             : safeInfo ? <Chip tone="primary"><Check className="h-3 w-3" /> Safe App detected</Chip>
             : wallet ? <Chip tone="primary"><Check className="h-3 w-3" /> wallet ready</Chip>
             : <Chip tone="warning"><AlertTriangle className="h-3 w-3" /> connect wallet or open in Safe</Chip>}
@@ -1188,7 +1052,6 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
   const { address, isConnected } = useAccount();
   const wallet = isConnected && address ? shortAddress(address) : null;
   const [safeInfo, setSafeInfo] = useState<SafeAppInfo | null>(null);
-  const [shadowResult, setShadowResult] = useState<ShadowPreflightResult | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [marketsState, setMarketsState] = useState<MarketsState>({
     loadState: "loading",
@@ -1254,10 +1117,6 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
   const editorState = tab === "update" ? updateState : openState;
   const setEditorState = tab === "update" ? setUpdateState : setOpenState;
 
-  useEffect(() => {
-    setShadowResult(null);
-  }, [base, editorState, env, tab]);
-
   return (
     <div className="min-h-screen bg-background bg-grid">
       <Header env={env} setEnv={setEnv} />
@@ -1319,18 +1178,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
                 onLoadAero={() => setOpenState(fromTemplate(AERO_TEMPLATE))} />
             </div>
             <div className="lg:col-span-4 space-y-3">
-              <ValidationTape env={env} wallet={wallet} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} />
-              {env === "mainnet" && (
-                <ShadowPreflight
-                  env={env}
-                  mode={editorMode}
-                  state={editorState}
-                  base={tab === "update" ? base : null}
-                  wallet={wallet}
-                  marketCount={markets.length}
-                  onResult={setShadowResult}
-                />
-              )}
+              <ValidationTape env={env} wallet={wallet} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} base={tab === "update" ? base : null} />
               <ProposalPanel
                 env={env}
                 mode={editorMode}
@@ -1339,7 +1187,6 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
                 wallet={wallet}
                 safeInfo={safeInfo}
                 marketCount={markets.length}
-                shadowPassed={env !== "mainnet" || shadowResult?.status === "passed"}
               />
             </div>
           </>

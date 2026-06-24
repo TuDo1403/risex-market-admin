@@ -21,13 +21,6 @@ const rpcMocks = vi.hoisted(() => ({
   readOpenOracleValidation: vi.fn(),
 }))
 
-const shadowMocks = vi.hoisted(() => ({
-  createShadowWalletClient: vi.fn(),
-  executeShadowPreflight: vi.fn(),
-}))
-
-const fetchMock = vi.hoisted(() => vi.fn())
-
 vi.mock('wagmi', () => ({
   useAccount: () => ({
     address: hookState.address,
@@ -70,15 +63,6 @@ vi.mock('@/src/lib/rpc/oracle-validation', () => ({
   readOracleValidation: rpcMocks.readOracleValidation,
 }))
 
-vi.mock('@/src/lib/shadow', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/src/lib/shadow')>()
-  return {
-    ...actual,
-    createShadowWalletClient: shadowMocks.createShadowWalletClient,
-    executeShadowPreflight: shadowMocks.executeShadowPreflight,
-  }
-})
-
 function textIncludes(value: string) {
   return (_content: string, node: Element | null) => node?.textContent?.includes(value) ?? false
 }
@@ -93,32 +77,6 @@ describe('MarketAdminConsole Lovable source port', () => {
     hookState.switchChainAsync.mockReset()
     hookState.switchChainAsync.mockImplementation(async ({ chainId }: { chainId: number }) => {
       hookState.chainId = chainId
-    })
-    fetchMock.mockReset()
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          status: 'passed',
-          txHashes: ['0xabc'],
-          preTotalMarkets: 3,
-          postTotalMarkets: 4,
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      ),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    Object.defineProperty(window, 'ethereum', {
-      value: { request: vi.fn() },
-      configurable: true,
-    })
-    shadowMocks.createShadowWalletClient.mockReset()
-    shadowMocks.createShadowWalletClient.mockResolvedValue({ shadowClient: true })
-    shadowMocks.executeShadowPreflight.mockReset()
-    shadowMocks.executeShadowPreflight.mockResolvedValue({
-      status: 'passed',
-      txHashes: ['0xabc'],
-      preTotalMarkets: 3,
-      postTotalMarkets: 4,
     })
     rpcMocks.readLiveMarkets.mockImplementation(async (env: EnvKey) => marketsByEnv[env])
     const validate = async (_client: unknown, _addresses: unknown, marketIdOrSymbol: number | string, maybeSymbol?: string) => {
@@ -197,6 +155,39 @@ describe('MarketAdminConsole Lovable source port', () => {
     expect(screen.getByText(/maxPremium=75bps/i)).toBeInTheDocument()
   })
 
+  it('lets an update configure mark oracle when the market has no mark oracle config yet', async () => {
+    const user = userEvent.setup()
+    hookState.address = '0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D'
+    rpcMocks.readOracleValidation.mockImplementation(async (_client, _addresses, marketIdOrSymbol: number | string, maybeSymbol?: string) => {
+      const symbol = typeof marketIdOrSymbol === 'string' ? marketIdOrSymbol : maybeSymbol ?? 'ARB'
+      return {
+        marketId: typeof marketIdOrSymbol === 'number' ? marketIdOrSymbol : null,
+        symbol,
+        expectedIndexPriceId: deriveIndexPriceId(symbol),
+        expectedMarkPriceId: deriveMarkPriceId(symbol),
+        actualIndexPriceId: deriveIndexPriceId(symbol),
+        actualMarkPriceId: null,
+        indexPrice: '100000000',
+        markPrice: null,
+        indexPriceIdMatches: true,
+        markPriceIdMatches: false,
+        indexPriceLive: true,
+        markPriceLive: false,
+      }
+    })
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.dblClick(await screen.findByText('ARB/USDC'))
+
+    expect(screen.getByLabelText(/Mark τ/i)).toHaveValue(480)
+    expect(screen.getByLabelText(/Mark min/i)).toHaveValue(10)
+    expect(screen.getByLabelText(/Mark max/i)).toHaveValue(50)
+    expect(screen.getAllByText(/configureMarkOracle/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/no config changes selected/i)).not.toBeInTheDocument()
+    expect((await screen.findAllByText(/mark oracle will be configured/i)).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeEnabled()
+  })
+
   it('uses only updateMarketConfig for price-band-only updates', async () => {
     const user = userEvent.setup()
     render(<MarketAdminConsole initialEnv="staging" />)
@@ -239,7 +230,7 @@ describe('MarketAdminConsole Lovable source port', () => {
     expect(screen.getByText('RAW')).toBeInTheDocument()
   })
 
-  it('uses one atomic execution path across environments', async () => {
+  it('uses one atomic execution path across environments without shadow gating', async () => {
     const user = userEvent.setup()
     hookState.address = '0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D'
     const view = render(<MarketAdminConsole initialEnv="mainnet" />)
@@ -248,13 +239,11 @@ describe('MarketAdminConsole Lovable source port', () => {
     await user.click(screen.getByRole('button', { name: /AERO\/USDC example/i }))
     expect(screen.getAllByText(/AccessManager\.multicall/i).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/configureMarkOracle/i).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeDisabled()
-    expect(screen.getByText(/run shadow first/i)).toBeInTheDocument()
-    const runShadow = screen.getByRole('button', { name: /run on shadow/i })
-    expect(runShadow).toBeEnabled()
+    expect(screen.queryByText(/run shadow first/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Shadow preflight/i)).not.toBeInTheDocument()
     expect(hookState.switchChainAsync).not.toHaveBeenCalled()
     expect(hookState.sendTransactionAsync).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeEnabled()
 
     await user.click(within(screen.getByRole('group', { name: /environment/i })).getByRole('button', { name: /environment mainnet/i }))
     await user.click(screen.getByRole('button', { name: /staging/i }))
@@ -264,7 +253,7 @@ describe('MarketAdminConsole Lovable source port', () => {
     view.rerender(<MarketAdminConsole initialEnv="mainnet" />)
   })
 
-  it('shows shadow preflight only for mainnet submissions', async () => {
+  it('does not expose shadow as an environment or preflight panel', async () => {
     const user = userEvent.setup()
     render(<MarketAdminConsole initialEnv="staging" />)
 
@@ -272,9 +261,10 @@ describe('MarketAdminConsole Lovable source port', () => {
     expect(screen.queryByText(/Shadow preflight/i)).not.toBeInTheDocument()
 
     await user.click(within(screen.getByRole('group', { name: /environment/i })).getByRole('button', { name: /environment staging/i }))
+    expect(screen.queryByRole('button', { name: /^shadow/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^mainnet/i }))
 
-    expect(screen.getByText(/Shadow preflight/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Shadow preflight/i)).not.toBeInTheDocument()
   })
 })
 
@@ -303,6 +293,7 @@ function market(partial: Partial<Market> & Pick<Market, 'id' | 'symbol'>): Marke
     impactBaseUsdc: partial.impactBaseUsdc ?? 50,
     impactBaseRaw,
     priceBandBps: partial.priceBandBps ?? 300,
+    markOracleConfigured: partial.markOracleConfigured ?? true,
     markOracleTimeConstantSeconds: partial.markOracleTimeConstantSeconds ?? 480,
     markOracleMinUpdateInterval: partial.markOracleMinUpdateInterval ?? 10,
     markOracleMaxPremiumBps: partial.markOracleMaxPremiumBps ?? 50,
@@ -315,7 +306,7 @@ const marketsByEnv: Record<EnvKey, Market[]> = {
     market({ id: 1, symbol: 'ETH', maxLeverage: 25, mmrPct: '2' }),
     market({ id: 2, symbol: 'BTC', maxLeverage: 25, mmrPct: '1.8' }),
     market({ id: 3, symbol: 'SOL', maxLeverage: 20, mmrPct: '2.5' }),
-    market({ id: 4, symbol: 'ARB', status: 'locked' }),
+    market({ id: 4, symbol: 'ARB', status: 'locked', markOracleConfigured: false }),
     market({ id: 5, symbol: 'DOGE', quote: 'USDT', deferredSettlement: true, stepSize: 10, stepPrice: 0.000001 }),
   ],
   testnet: [
@@ -325,11 +316,6 @@ const marketsByEnv: Record<EnvKey, Market[]> = {
     market({ id: 4, symbol: 'PEPE', stepSize: 1000, stepPrice: 0.00000001 }),
   ],
   mainnet: [
-    market({ id: 1, symbol: 'ETH', maxLeverage: 25 }),
-    market({ id: 2, symbol: 'BTC', maxLeverage: 25 }),
-    market({ id: 3, symbol: 'SOL', maxLeverage: 20 }),
-  ],
-  shadow: [
     market({ id: 1, symbol: 'ETH', maxLeverage: 25 }),
     market({ id: 2, symbol: 'BTC', maxLeverage: 25 }),
     market({ id: 3, symbol: 'SOL', maxLeverage: 20 }),

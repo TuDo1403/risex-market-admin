@@ -20,8 +20,6 @@ type MarketDraftEvent =
   | { type: 'VALIDATION_FAILED'; error: string }
   | { type: 'ATOMIC_TX_BUILT' }
   | { type: 'ATOMIC_TX_FAILED'; error: string }
-  | { type: 'SHADOW_PASSED' }
-  | { type: 'SHADOW_FAILED'; error: string }
   | { type: 'CREATE_REVIEW_LINK' }
   | { type: 'REVIEW_LINK_CREATED'; shareId: string }
   | { type: 'REVIEW_LINK_FAILED'; error: string }
@@ -105,42 +103,10 @@ export const marketDraftMachine = createMachine({
     },
     buildingAtomicTx: {
       on: {
-        ATOMIC_TX_BUILT: [
-          {
-            target: 'shadowExecuting',
-            guard: ({ context }) => context.env === 'mainnet',
-          },
-          {
-            target: 'readyForExecution',
-          },
-        ],
+        ATOMIC_TX_BUILT: 'readyForExecution',
         ATOMIC_TX_FAILED: {
           target: 'editing',
           actions: assign(({ event }) => ({ lastError: event.error })),
-        },
-        EDIT: 'editing',
-      },
-    },
-    shadowExecuting: {
-      on: {
-        SHADOW_PASSED: 'shadowPassed',
-        SHADOW_FAILED: {
-          target: 'shadowFailed',
-          actions: assign(({ event }) => ({ lastError: event.error })),
-        },
-      },
-    },
-    shadowFailed: {
-      on: {
-        EDIT: 'editing',
-        ATOMIC_TX_BUILT: 'shadowExecuting',
-      },
-    },
-    shadowPassed: {
-      on: {
-        CREATE_REVIEW_LINK: {
-          target: 'creatingReviewLink',
-          actions: assign({ lastError: undefined }),
         },
         EDIT: 'editing',
       },
@@ -155,13 +121,17 @@ export const marketDraftMachine = createMachine({
           })),
         },
         REVIEW_LINK_FAILED: {
-          target: 'shadowPassed',
+          target: 'readyForExecution',
           actions: assign(({ event }) => ({ lastError: event.error })),
         },
       },
     },
     readyForExecution: {
       on: {
+        CREATE_REVIEW_LINK: {
+          target: 'creatingReviewLink',
+          actions: assign({ lastError: undefined }),
+        },
         SUBMIT_TRANSACTION: 'submittingTransaction',
         EDIT: 'editing',
       },

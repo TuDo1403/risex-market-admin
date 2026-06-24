@@ -15,6 +15,10 @@ export function liveMarketToDisplayMarket(live: LiveMarket): Market {
       : '0'
   const impactBaseUsdc = live.impactNotionalBaseUsdc ?? 0n
   const markOracle = live.markOracleConfig
+  const markOracleConfigured =
+    markOracle !== undefined &&
+    markOracle.timeConstantSeconds >= 10n &&
+    markOracle.maxPremiumBps > 0n
 
   return {
     id: live.id,
@@ -38,13 +42,14 @@ export function liveMarketToDisplayMarket(live: LiveMarket): Market {
     impactBaseUsdc: Number(impactBaseUsdc),
     impactBaseRaw: impactBaseUsdc.toString(),
     priceBandBps: Number(live.matchPriceBandBps),
-    markOracleTimeConstantSeconds: markOracle
+    markOracleConfigured,
+    markOracleTimeConstantSeconds: markOracleConfigured
       ? Number(markOracle.timeConstantSeconds)
       : DEFAULT_MARK_ORACLE_CONFIG.timeConstantSeconds,
-    markOracleMinUpdateInterval: markOracle
+    markOracleMinUpdateInterval: markOracleConfigured
       ? Number(markOracle.minUpdateInterval)
       : DEFAULT_MARK_ORACLE_CONFIG.minUpdateInterval,
-    markOracleMaxPremiumBps: markOracle
+    markOracleMaxPremiumBps: markOracleConfigured
       ? Number(markOracle.maxPremiumBps)
       : DEFAULT_MARK_ORACLE_CONFIG.maxPremiumBps,
     deployedAt: 'live',

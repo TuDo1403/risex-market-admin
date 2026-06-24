@@ -3,12 +3,11 @@
 import { formatRawDecimal, mmrPercentToMaintenanceMarginFactor, parseDecimalToRaw } from "./numbers";
 import { getDeploymentForEnv } from "@/src/config/deployments";
 
-export type EnvKey = "testnet" | "staging" | "mainnet" | "shadow";
+export type EnvKey = "testnet" | "staging" | "mainnet";
 
 export const ENVS: { key: EnvKey; label: string; chain: string; access: string }[] = [
   { key: "testnet", label: "Testnet", chain: "RISE Testnet · 11155931", access: getDeploymentForEnv("testnet").addresses.accessManager },
   { key: "staging", label: "Staging", chain: "RISE Staging · 11155931", access: getDeploymentForEnv("staging").addresses.accessManager },
-  { key: "shadow",  label: "Shadow",  chain: "RISE Shadow · 11155931", access: getDeploymentForEnv("shadow").addresses.accessManager },
   { key: "mainnet", label: "Mainnet", chain: "RISE Mainnet · 11155931", access: getDeploymentForEnv("mainnet").addresses.accessManager },
 ];
 
@@ -46,6 +45,7 @@ export type Market = {
   impactBaseUsdc: number;    // friendly USDC
   impactBaseRaw: string;     // raw contract value
   priceBandBps: number;
+  markOracleConfigured: boolean;
   markOracleTimeConstantSeconds: number;
   markOracleMinUpdateInterval: number;
   markOracleMaxPremiumBps: number;
@@ -72,6 +72,7 @@ const mk = (m: Partial<Market> & { id: number; symbol: string }): Market => {
     impactBaseUsdc: 50,
     impactBaseRaw: rawImpact(50),
     priceBandBps: 200,
+    markOracleConfigured: true,
     markOracleTimeConstantSeconds: DEFAULT_MARK_ORACLE_CONFIG.timeConstantSeconds,
     markOracleMinUpdateInterval: DEFAULT_MARK_ORACLE_CONFIG.minUpdateInterval,
     markOracleMaxPremiumBps: DEFAULT_MARK_ORACLE_CONFIG.maxPremiumBps,
@@ -99,11 +100,6 @@ export const MARKETS_BY_ENV: Record<EnvKey, Market[]> = {
     mk({ id: 2, symbol: "BTC",  maxLeverage: 50, mmrPct: "1.0",  stepSize: 0.0001, stepPrice: 0.1,    minOrderStep: 1, maxOrderStep: 200000, oiLimitSteps: 3_000_000, impactBaseUsdc: 200, priceBandBps: 300 }),
     mk({ id: 3, symbol: "SOL",  maxLeverage: 30, mmrPct: "2.0",  stepSize: 0.01,   stepPrice: 0.001,  minOrderStep: 5, maxOrderStep: 300000, oiLimitSteps: 4_000_000, impactBaseUsdc: 80, priceBandBps: 300 }),
     mk({ id: 4, symbol: "PEPE", maxLeverage: 10, mmrPct: "8.0",  stepSize: 1000,   stepPrice: 0.00000001, minOrderStep: 100, maxOrderStep: 2_000_000, oiLimitSteps: 10_000_000, impactBaseUsdc: 20, priceBandBps: 500 }),
-  ],
-  shadow: [
-    mk({ id: 1, symbol: "ETH",  maxLeverage: 25, mmrPct: "2.0",  stepSize: 0.001, stepPrice: 0.01,    minOrderStep: 1, maxOrderStep: 500000, oiLimitSteps: 5_000_000, impactBaseUsdc: 250, priceBandBps: 150 }),
-    mk({ id: 2, symbol: "BTC",  maxLeverage: 25, mmrPct: "1.8",  stepSize: 0.0001, stepPrice: 0.1,    minOrderStep: 1, maxOrderStep: 200000, oiLimitSteps: 3_000_000, impactBaseUsdc: 500, priceBandBps: 120 }),
-    mk({ id: 3, symbol: "SOL",  maxLeverage: 20, mmrPct: "2.5",  stepSize: 0.01,   stepPrice: 0.001,  minOrderStep: 5, maxOrderStep: 300000, oiLimitSteps: 4_000_000, impactBaseUsdc: 120, priceBandBps: 200 }),
   ],
 };
 
