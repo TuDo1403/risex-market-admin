@@ -1,12 +1,15 @@
-import { keccak256, stringToHex, type Hex } from 'viem'
+import { keccak256, toHex, type Hex } from 'viem'
 
-// Mirrors the Solidity derivation in risex-contracts:
-//   indexPriceId = keccak256(bytes(string.concat(symbol, "USDC")))
-//   markPriceId  = keccak256(bytes(string.concat(symbol, "USDCMARK")))
-export function deriveIndexPriceId(baseSymbol: string): Hex {
-  return keccak256(stringToHex(`${baseSymbol.toUpperCase()}USDC`))
+import { QUOTE_SYMBOL } from './lovable-risex'
+
+function normalizedPair(symbol: string): string {
+  return `${symbol.trim().toUpperCase()}${QUOTE_SYMBOL}`
 }
 
-export function deriveMarkPriceId(baseSymbol: string): Hex {
-  return keccak256(stringToHex(`${baseSymbol.toUpperCase()}USDCMARK`))
+export function deriveIndexPriceId(symbol: string): Hex {
+  return keccak256(toHex(normalizedPair(symbol)))
+}
+
+export function deriveMarkPriceId(symbol: string): Hex {
+  return keccak256(toHex(`${normalizedPair(symbol)}MARK`))
 }
