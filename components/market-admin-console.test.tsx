@@ -6,12 +6,44 @@ import { MarketAdminConsole } from './market-admin-console'
 import type { EnvKey, Market } from '@/src/lib/lovable-risex'
 import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
 
+const hookState = vi.hoisted(() => ({
+  session: null as { user?: { name?: string; email?: string } } | null,
+  address: null as string | null,
+  connector: { id: 'mock', name: 'Mock connector', type: 'mock' },
+}))
+
+vi.mock('next-auth/react', () => ({
+  useSession: () => ({ data: hookState.session }),
+  signIn: vi.fn(),
+  signOut: vi.fn(() => {
+    hookState.session = null
+  }),
+}))
+
+vi.mock('wagmi', () => ({
+  useAccount: () => ({
+    address: hookState.address,
+    isConnected: hookState.address !== null,
+  }),
+  useConnect: () => ({
+    connectors: [hookState.connector],
+    connect: vi.fn(),
+  }),
+  useDisconnect: () => ({
+    disconnect: vi.fn(() => {
+      hookState.address = null
+    }),
+  }),
+}))
+
 function textIncludes(value: string) {
   return (_content: string, node: Element | null) => node?.textContent?.includes(value) ?? false
 }
 
 describe('MarketAdminConsole Lovable source port', () => {
   beforeEach(() => {
+    hookState.session = null
+    hookState.address = null
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), 'http://localhost')
       if (url.pathname === '/api/oracle/validation') {
@@ -108,12 +140,13 @@ describe('MarketAdminConsole Lovable source port', () => {
 
   it('uses Safe proposal mode on mainnet and EOA execution elsewhere', async () => {
     const user = userEvent.setup()
-    render(<MarketAdminConsole initialEnv="mainnet" />)
+    const view = render(<MarketAdminConsole initialEnv="mainnet" />)
 
     await user.click(screen.getByRole('button', { name: /open market/i }))
     expect(screen.getAllByText(/Safe MultiSend/i).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /create Safe proposal/i })).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: /sign in/i }))
+    hookState.session = { user: { name: '@rise-ops' } }
+    view.rerender(<MarketAdminConsole initialEnv="mainnet" />)
     expect(screen.getByRole('button', { name: /create Safe proposal/i })).toBeEnabled()
 
     await user.click(within(screen.getByRole('group', { name: /environment/i })).getByRole('button', { name: /environment mainnet/i }))
@@ -121,7 +154,8 @@ describe('MarketAdminConsole Lovable source port', () => {
     expect(screen.getByText(/EOA tx batch/i)).toBeInTheDocument()
     expect(screen.queryByText(/Shadow preflight/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /execute 3 tx/i })).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: /connect/i }))
+    hookState.address = '0x9953E4D18400Fc15125c27c3d0C83BE38D561d36'
+    view.rerender(<MarketAdminConsole initialEnv="mainnet" />)
     expect(screen.getByRole('button', { name: /execute 3 tx/i })).toBeEnabled()
   })
 

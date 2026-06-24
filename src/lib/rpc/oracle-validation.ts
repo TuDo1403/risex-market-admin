@@ -28,7 +28,7 @@ type SettledResult<T> =
 
 export async function readOracleValidation(
   client: OracleValidationClient,
-  addresses: { risexOracle: Address; risexStork: Address },
+  addresses: { risexOracle: Address; risexStork: Address; multicall3?: Address },
   marketId: number,
   symbol: string,
 ): Promise<OracleValidation> {
@@ -37,6 +37,7 @@ export async function readOracleValidation(
 
   const [actualIndexPriceIdResult, actualMarkPriceIdResult, indexPriceResult, markPriceResult] = await client.multicall({
     allowFailure: true,
+    multicallAddress: addresses.multicall3,
     contracts: [
       {
         address: addresses.risexStork,

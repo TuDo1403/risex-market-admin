@@ -56,6 +56,7 @@ describe('oracle validation route handler', () => {
       {
         risexOracle: '0xb0A9a42E5cd3CA48C1f288CB0B427f41f3ab4885',
         risexStork: '0xc5e5C5994183E82Fa379d18EeE73F3f998d2E633',
+        multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
       },
       4,
       'DOGE',

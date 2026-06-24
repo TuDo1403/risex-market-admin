@@ -90,14 +90,12 @@ test('operator can switch envs, update a market, and see tx mode rules', async (
   await selectEnv(page, 'mainnet')
   await expect(page.getByText(/Safe MultiSend/).last()).toBeVisible()
   await expect(page.getByRole('button', { name: /create Safe proposal/i })).toBeDisabled()
-  await page.getByRole('button', { name: /sign in/i }).click()
-  await expect(page.getByRole('button', { name: /create Safe proposal/i })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
 
   await selectEnv(page, 'staging')
   await expect(page.getByText(/EOA tx batch/i)).toBeVisible()
   await expect(page.getByRole('button', { name: /execute 3 tx/i })).toBeDisabled()
-  await page.getByRole('button', { name: /connect/i }).click()
-  await expect(page.getByRole('button', { name: /execute 3 tx/i })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /connect/i })).toBeVisible()
 })
 
 function market(partial: Partial<MarketRow> & Pick<MarketRow, 'id' | 'symbol'>) {

@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       {
         risexOracle: deployment.addresses.risexOracle,
         risexStork: deployment.addresses.risexStork,
+        multicall3: deployment.multicall3Address,
       },
       marketId,
       symbol,

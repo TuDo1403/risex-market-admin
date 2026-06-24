@@ -1,8 +1,10 @@
 'use client'
 
 import Image from 'next/image'
+import { signIn, signOut, useSession } from 'next-auth/react'
 import type React from 'react'
 import { useEffect, useMemo, useState } from "react";
+import { useAccount, useConnect, useDisconnect } from 'wagmi'
 import {
   ENVS, EnvKey, Market, AERO_TEMPLATE, QUOTE_SYMBOL,
   fmt, rawMmr, rawImpact, rawStepPrice, rawStepSize,
@@ -29,6 +31,10 @@ function RiseLogo({ className }: { className?: string }) {
 
 function Dot({ color = "primary", pulse = false }: { color?: string; pulse?: boolean }) {
   return <span className={cn("dot", pulse && "animate-pulse-dot")} style={{ background: `hsl(var(--${color}))` }} />;
+}
+
+function shortAddress(address: string) {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`
 }
 
 function Chip({ children, tone = "default", className }: { children: React.ReactNode; tone?: "default" | "primary" | "warning" | "destructive" | "accent" | "muted"; className?: string }) {
@@ -161,12 +167,15 @@ function EnvSwitcher({ env, setEnv }: { env: EnvKey; setEnv: (e: EnvKey) => void
 
 /* -------------------------------- Header ------------------------------- */
 
-function Header({ env, setEnv, github, setGithub, wallet, setWallet }: {
+function Header({ env, setEnv }: {
   env: EnvKey; setEnv: (e: EnvKey) => void;
-  github: string | null; setGithub: (v: string | null) => void;
-  wallet: string | null; setWallet: (v: string | null) => void;
 }) {
   const cfg = ENVS.find(e => e.key === env)!;
+  const { data: session } = useSession();
+  const github = session?.user?.name ?? session?.user?.email ?? null;
+  const { address, isConnected } = useAccount();
+  const { connect, connectors } = useConnect();
+  const { disconnect } = useDisconnect();
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 sm:px-4 h-auto py-2 sm:h-12 sm:py-0">
@@ -186,20 +195,20 @@ function Header({ env, setEnv, github, setGithub, wallet, setWallet }: {
 
         <div className="flex items-center gap-2 ml-auto">
           {github ? (
-            <button onClick={() => setGithub(null)} className="inline-flex items-center gap-1.5 h-8 px-2 border border-border bg-surface-2 hover:bg-surface-3 rounded-sm">
+            <button onClick={() => signOut()} title="Sign out" className="inline-flex items-center gap-1.5 h-8 px-2 border border-border bg-surface-2 hover:bg-surface-3 rounded-sm">
               <Github className="h-3.5 w-3.5" /><span className="font-mono text-[11px]">{github}</span>
             </button>
           ) : (
-            <Btn variant="outline" size="sm" onClick={() => setGithub("@rise-ops")}>
+            <Btn variant="outline" size="sm" onClick={() => signIn("github")}>
               <Github className="h-3 w-3" /> Sign in
             </Btn>
           )}
-          {wallet ? (
-            <button onClick={() => setWallet(null)} className="inline-flex items-center gap-1.5 h-8 px-2 border border-border bg-surface-2 hover:bg-surface-3 rounded-sm">
-              <Wallet className="h-3.5 w-3.5 text-primary" /><span className="font-mono text-[11px]">{wallet}</span>
+          {isConnected && address ? (
+            <button onClick={() => disconnect()} title="Disconnect" className="inline-flex items-center gap-1.5 h-8 px-2 border border-border bg-surface-2 hover:bg-surface-3 rounded-sm">
+              <Wallet className="h-3.5 w-3.5 text-primary" /><span className="font-mono text-[11px]">{shortAddress(address)}</span>
             </button>
           ) : (
-            <Btn variant="outline" size="sm" onClick={() => setWallet("0x9F2c…AeB1")}>
+            <Btn variant="outline" size="sm" disabled={!connectors[0]} onClick={() => connectors[0] && connect({ connector: connectors[0] })}>
               <Plug className="h-3 w-3" /> Connect
             </Btn>
           )}
@@ -848,8 +857,10 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
   const [openState, setOpenState] = useState<EditorState>(emptyEditor());
   const [updateState, setUpdateState] = useState<EditorState>(emptyEditor());
   const [rawMode, setRawMode] = useState(false);
-  const [github, setGithub] = useState<string | null>(null);
-  const [wallet, setWallet] = useState<string | null>(null);
+  const { data: session } = useSession();
+  const { address, isConnected } = useAccount();
+  const github = session?.user?.name ?? session?.user?.email ?? null;
+  const wallet = isConnected && address ? shortAddress(address) : null;
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [marketsState, setMarketsState] = useState<MarketsState>({
     loadState: "loading",
@@ -904,7 +915,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
 
   return (
     <div className="min-h-screen bg-background bg-grid">
-      <Header env={env} setEnv={setEnv} github={github} setGithub={setGithub} wallet={wallet} setWallet={setWallet} />
+      <Header env={env} setEnv={setEnv} />
 
       {/* Status bar */}
       <div className="border-b border-border bg-surface/60">
