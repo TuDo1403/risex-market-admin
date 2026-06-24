@@ -201,6 +201,13 @@ export const risexOracleAbi = [
 export const risexStorkAbi = [
   {
     type: 'function',
+    name: 'getStork',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
     name: 'getIndexPriceId',
     stateMutability: 'view',
     inputs: [{ name: 'marketId', type: 'uint16' }],
@@ -212,6 +219,25 @@ export const risexStorkAbi = [
     stateMutability: 'view',
     inputs: [{ name: 'marketId', type: 'uint16' }],
     outputs: [{ name: '', type: 'bytes32' }],
+  },
+] as const
+
+export const storkAbi = [
+  {
+    type: 'function',
+    name: 'getTemporalNumericValueV1',
+    stateMutability: 'view',
+    inputs: [{ name: 'id', type: 'bytes32' }],
+    outputs: [
+      {
+        name: 'value',
+        type: 'tuple',
+        components: [
+          { name: 'timestampNs', type: 'uint64' },
+          { name: 'quantizedValue', type: 'int192' },
+        ],
+      },
+    ],
   },
 ] as const
 

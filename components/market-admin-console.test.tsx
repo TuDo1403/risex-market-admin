@@ -12,6 +12,12 @@ const hookState = vi.hoisted(() => ({
   connector: { id: 'mock', name: 'Mock connector', type: 'mock' },
 }))
 
+const rpcMocks = vi.hoisted(() => ({
+  readLiveMarkets: vi.fn(),
+  readOracleValidation: vi.fn(),
+  readOpenOracleValidation: vi.fn(),
+}))
+
 vi.mock('next-auth/react', () => ({
   useSession: () => ({ data: hookState.session }),
   signIn: vi.fn(),
@@ -40,6 +46,23 @@ vi.mock('wagmi', () => ({
   }),
 }))
 
+vi.mock('@/src/lib/client/public-client', () => ({
+  getPublicClient: vi.fn((env: EnvKey) => env),
+}))
+
+vi.mock('@/src/lib/market-view', () => ({
+  liveMarketToDisplayMarket: (market: Market) => market,
+}))
+
+vi.mock('@/src/lib/rpc/market-reader', () => ({
+  readLiveMarkets: rpcMocks.readLiveMarkets,
+}))
+
+vi.mock('@/src/lib/rpc/oracle-validation', () => ({
+  readOpenOracleValidation: rpcMocks.readOpenOracleValidation,
+  readOracleValidation: rpcMocks.readOracleValidation,
+}))
+
 function textIncludes(value: string) {
   return (_content: string, node: Element | null) => node?.textContent?.includes(value) ?? false
 }
@@ -48,38 +71,30 @@ describe('MarketAdminConsole Lovable source port', () => {
   beforeEach(() => {
     hookState.session = null
     hookState.address = null
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(String(input), 'http://localhost')
-      if (url.pathname === '/api/oracle/validation') {
-        const symbol = url.searchParams.get('symbol') ?? 'DOGE'
-        return {
-          ok: true,
-          json: async () => ({
-            validation: {
-              expectedIndexPriceId: deriveIndexPriceId(symbol),
-              expectedMarkPriceId: deriveMarkPriceId(symbol),
-              actualIndexPriceId: deriveIndexPriceId(symbol),
-              actualMarkPriceId: deriveMarkPriceId(symbol),
-              indexPrice: '100000000',
-              markPrice: '100100000',
-              indexPriceIdMatches: true,
-              markPriceIdMatches: true,
-              indexPriceLive: true,
-              markPriceLive: true,
-            },
-          }),
-        }
-      }
-      const env = (url.searchParams.get('env') ?? 'staging') as EnvKey
+    rpcMocks.readLiveMarkets.mockImplementation(async (env: EnvKey) => marketsByEnv[env])
+    const validate = async (_client: unknown, _addresses: unknown, marketIdOrSymbol: number | string, maybeSymbol?: string) => {
+      const symbol = typeof marketIdOrSymbol === 'string' ? marketIdOrSymbol : maybeSymbol ?? 'DOGE'
       return {
-        ok: true,
-        json: async () => ({ env, markets: marketsByEnv[env] }),
+        marketId: typeof marketIdOrSymbol === 'number' ? marketIdOrSymbol : null,
+        symbol,
+        expectedIndexPriceId: deriveIndexPriceId(symbol),
+        expectedMarkPriceId: deriveMarkPriceId(symbol),
+        actualIndexPriceId: deriveIndexPriceId(symbol),
+        actualMarkPriceId: deriveMarkPriceId(symbol),
+        indexPrice: '100000000',
+        markPrice: '100100000',
+        indexPriceIdMatches: true,
+        markPriceIdMatches: true,
+        indexPriceLive: true,
+        markPriceLive: true,
       }
-    }))
+    }
+    rpcMocks.readOracleValidation.mockImplementation(validate)
+    rpcMocks.readOpenOracleValidation.mockImplementation(validate)
   })
 
   afterEach(() => {
-    vi.unstubAllGlobals()
+    vi.clearAllMocks()
   })
 
   it('changes current markets through the top-right environment switcher', async () => {
@@ -136,8 +151,12 @@ describe('MarketAdminConsole Lovable source port', () => {
     expect(screen.getByText(/stored uint64; effective = base × 1e18 × maxLev/i)).toBeInTheDocument()
     expect(screen.getByText(/200 bps = 2%/i)).toBeInTheDocument()
     expect(screen.getAllByText(/setDeferredMode/i).length).toBeGreaterThan(0)
-    expect(screen.getByText(/expected index/i)).toBeInTheDocument()
-    expect(screen.getByText(/queried after market exists/i)).toBeInTheDocument()
+    expect(await screen.findByText(/index 100000000 · mark 100100000/i)).toBeInTheDocument()
+    expect(rpcMocks.readOpenOracleValidation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      'AERO',
+    )
     expect(screen.getByText('FRIENDLY')).toBeInTheDocument()
     expect(screen.getByText('RAW')).toBeInTheDocument()
   })

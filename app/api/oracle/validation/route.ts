@@ -6,7 +6,7 @@ import {
   type MarketAdminEnv,
 } from '@/src/config/deployments'
 import { createMarketPublicClient } from '@/src/lib/rpc/market-reader'
-import { readOracleValidation } from '@/src/lib/rpc/oracle-validation'
+import { readOpenOracleValidation, readOracleValidation } from '@/src/lib/rpc/oracle-validation'
 
 export async function GET(request: NextRequest) {
   const envParam = request.nextUrl.searchParams.get('env') ?? 'staging'
@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: `unknown environment: ${envParam}` }, { status: 400 })
   }
 
-  const marketId = Number(marketIdParam)
-  if (!Number.isInteger(marketId) || marketId < 0 || marketId > 65_535) {
+  const marketId = marketIdParam === null ? null : Number(marketIdParam)
+  if (marketId !== null && (!Number.isInteger(marketId) || marketId < 0 || marketId > 65_535)) {
     return NextResponse.json({ error: `invalid marketId: ${marketIdParam}` }, { status: 400 })
   }
 
@@ -36,16 +36,26 @@ export async function GET(request: NextRequest) {
 
   try {
     const client = createMarketPublicClient(deployment)
-    const validation = await readOracleValidation(
-      client,
-      {
-        risexOracle: deployment.addresses.risexOracle,
-        risexStork: deployment.addresses.risexStork,
-        multicall3: deployment.multicall3Address,
-      },
-      marketId,
-      symbol,
-    )
+    const validation =
+      marketId === null
+        ? await readOpenOracleValidation(
+            client,
+            {
+              risexStork: deployment.addresses.risexStork,
+              multicall3: deployment.multicall3Address,
+            },
+            symbol,
+          )
+        : await readOracleValidation(
+            client,
+            {
+              risexOracle: deployment.addresses.risexOracle,
+              risexStork: deployment.addresses.risexStork,
+              multicall3: deployment.multicall3Address,
+            },
+            marketId,
+            symbol,
+          )
 
     return NextResponse.json({
       env: deployment.env,

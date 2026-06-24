@@ -6,6 +6,10 @@ import type React from 'react'
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi'
 import { getDeploymentForEnv } from "@/src/config/deployments";
+import { getPublicClient } from "@/src/lib/client/public-client";
+import { liveMarketToDisplayMarket } from "@/src/lib/market-view";
+import { readLiveMarkets } from "@/src/lib/rpc/market-reader";
+import { readOpenOracleValidation, readOracleValidation } from "@/src/lib/rpc/oracle-validation";
 import { detectSafeApp, submitSafeAppTransaction, type SafeAppInfo } from "@/src/lib/safe-app";
 import { buildOpenMarketProposal, buildUpdateMarketProposal, type AtomicAccessManagerTx } from "@/src/lib/proposal-builder";
 import {
@@ -552,53 +556,55 @@ function ValidationTape({ env, github, wallet, safeInfo, state, mode, marketCoun
   const expectedMarkPriceId = state.symbol ? deriveMarkPriceId(state.symbol) : "";
 
   useEffect(() => {
-    if (mode !== "update" || marketId === null || marketId === undefined || !state.symbol) {
+    if (!state.symbol || (mode === "update" && (marketId === null || marketId === undefined))) {
       setOracleValidation({ status: "idle" });
       return;
     }
 
-    const controller = new AbortController();
+    let cancelled = false;
     setOracleValidation({ status: "loading" });
 
-    fetch(`/api/oracle/validation?env=${env}&marketId=${marketId}&symbol=${encodeURIComponent(state.symbol)}`, {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const body = (await response.json()) as { validation?: OracleValidationResult; error?: string };
-        if (!response.ok || !body.validation) {
-          throw new Error(body.error ?? `oracle validation failed with ${response.status}`);
-        }
-        setOracleValidation({ status: "ok", validation: body.validation });
+    const deployment = getDeploymentForEnv(env);
+    const client = getPublicClient(env);
+    const validationPromise =
+      mode === "open"
+        ? readOpenOracleValidation(
+            client,
+            { risexStork: deployment.addresses.risexStork, multicall3: deployment.multicall3Address },
+            state.symbol,
+          )
+        : readOracleValidation(
+            client,
+            {
+              risexOracle: deployment.addresses.risexOracle,
+              risexStork: deployment.addresses.risexStork,
+              multicall3: deployment.multicall3Address,
+            },
+            marketId as number,
+            state.symbol,
+          );
+
+    validationPromise
+      .then((validation) => {
+        if (cancelled) return;
+        setOracleValidation({ status: "ok", validation });
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
+        if (cancelled) return;
         setOracleValidation({
           status: "error",
           message: error instanceof Error ? error.message : "oracle validation failed",
         });
       });
 
-    return () => controller.abort();
+    return () => { cancelled = true; };
   }, [env, marketId, mode, state.symbol]);
 
   const oracleItems: { k: string; label: string; s: CheckState; detail: string }[] =
-    mode === "open"
+    !state.symbol
       ? [
-          {
-            k: "oracleIds",
-            label: "Oracle price IDs",
-            s: state.symbol ? "pending" : "fail",
-            detail: state.symbol
-              ? `expected index ${shortHex(expectedIndexPriceId)} · mark ${shortHex(expectedMarkPriceId)}`
-              : "enter a market symbol",
-          },
-          {
-            k: "oraclePrices",
-            label: "Oracle prices",
-            s: "pending",
-            detail: "queried after market exists",
-          },
+          { k: "oracleIds", label: "Oracle price IDs", s: "fail", detail: "enter a market symbol" },
+          { k: "oraclePrices", label: "Oracle prices", s: "fail", detail: "enter a market symbol" },
         ]
       : [
           {
@@ -617,7 +623,9 @@ function ValidationTape({ env, github, wallet, safeInfo, state, mode, marketCoun
                 ? `index ${shortHex(oracleValidation.validation.actualIndexPriceId)} · mark ${shortHex(oracleValidation.validation.actualMarkPriceId)}`
                 : oracleValidation.status === "error"
                   ? oracleValidation.message
-                  : "checking configured Stork IDs",
+                  : mode === "open"
+                    ? `checking Stork feeds for index ${shortHex(expectedIndexPriceId)} · mark ${shortHex(expectedMarkPriceId)}`
+                    : "checking configured Stork IDs",
           },
           {
             k: "oraclePrices",
@@ -635,7 +643,7 @@ function ValidationTape({ env, github, wallet, safeInfo, state, mode, marketCoun
                 ? `index ${oracleValidation.validation.indexPrice ?? "missing"} · mark ${oracleValidation.validation.markPrice ?? "missing"}`
                 : oracleValidation.status === "error"
                   ? oracleValidation.message
-                  : "reading RISExOracle prices",
+                  : mode === "open" ? "reading Stork feed prices" : "reading RISExOracle prices",
           },
         ];
 
@@ -917,12 +925,6 @@ function ProposalPanel({ env, mode, state, base, github, wallet, safeInfo, marke
 
 type Tab = "current" | "open" | "update";
 
-type MarketsResponse = {
-  env: EnvKey;
-  markets: Market[];
-  error?: string;
-};
-
 type MarketsState = {
   loadState: LoadState;
   markets: Market[];
@@ -962,23 +964,25 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
+    let cancelled = false;
     setMarketsState({ loadState: "loading", markets: [] });
 
-    fetch(`/api/markets?env=${env}`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const body = (await response.json()) as MarketsResponse;
-        if (!response.ok) {
-          throw new Error(body.error ?? `market read failed with ${response.status}`);
-        }
+    const deployment = getDeploymentForEnv(env);
+    readLiveMarkets(getPublicClient(env), deployment.addresses.perps, {
+      ordersManagerAddress: deployment.addresses.ordersManager,
+      multicall3Address: deployment.multicall3Address,
+    })
+      .then((live) => {
+        if (cancelled) return;
+        const markets = live.map(liveMarketToDisplayMarket);
         setMarketsState({
-          loadState: body.markets.length ? "ok" : "empty",
-          markets: body.markets,
+          loadState: markets.length ? "ok" : "empty",
+          markets,
           refreshedAt: new Date(),
         });
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
+        if (cancelled) return;
         setMarketsState({
           loadState: "error",
           markets: [],
@@ -986,7 +990,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
         });
       });
 
-    return () => controller.abort();
+    return () => { cancelled = true; };
   }, [env, refreshNonce]);
 
   // When env changes, reset selection if absent

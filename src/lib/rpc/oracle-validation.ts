@@ -1,10 +1,10 @@
 import type { Address, Hex } from 'viem'
 
-import { risexOracleAbi, risexStorkAbi } from '@/src/lib/abis'
+import { risexOracleAbi, risexStorkAbi, storkAbi } from '@/src/lib/abis'
 import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
 
 export type OracleValidation = {
-  marketId: number
+  marketId: number | null
   symbol: string
   expectedIndexPriceId: Hex
   expectedMarkPriceId: Hex
@@ -20,6 +20,7 @@ export type OracleValidation = {
 
 type OracleValidationClient = {
   multicall(args: unknown): Promise<unknown>
+  readContract?(args: unknown): Promise<unknown>
 }
 
 type SettledResult<T> =
@@ -87,6 +88,64 @@ export async function readOracleValidation(
     markPrice: markPrice?.toString() ?? null,
     indexPriceIdMatches: actualIndexPriceId === expectedIndexPriceId,
     markPriceIdMatches: actualMarkPriceId === expectedMarkPriceId,
+    indexPriceLive: indexPrice !== null && indexPrice > 0n,
+    markPriceLive: markPrice !== null && markPrice > 0n,
+  }
+}
+
+export async function readOpenOracleValidation(
+  client: OracleValidationClient,
+  addresses: { risexStork: Address; multicall3?: Address },
+  symbol: string,
+): Promise<OracleValidation> {
+  if (!client.readContract) {
+    throw new Error('open oracle validation requires readContract')
+  }
+
+  const expectedIndexPriceId = deriveIndexPriceId(symbol)
+  const expectedMarkPriceId = deriveMarkPriceId(symbol)
+  const stork = await client.readContract({
+    address: addresses.risexStork,
+    abi: risexStorkAbi,
+    functionName: 'getStork',
+  }) as Address
+
+  const [indexPriceResult, markPriceResult] = await client.multicall({
+    allowFailure: true,
+    multicallAddress: addresses.multicall3,
+    contracts: [
+      {
+        address: stork,
+        abi: storkAbi,
+        functionName: 'getTemporalNumericValueV1',
+        args: [expectedIndexPriceId],
+      },
+      {
+        address: stork,
+        abi: storkAbi,
+        functionName: 'getTemporalNumericValueV1',
+        args: [expectedMarkPriceId],
+      },
+    ],
+  }) as [
+    SettledResult<{ timestampNs: bigint; quantizedValue: bigint }>,
+    SettledResult<{ timestampNs: bigint; quantizedValue: bigint }>,
+  ]
+
+  const indexPrice = indexPriceResult.status === 'success' ? indexPriceResult.result.quantizedValue : null
+  const markPrice = markPriceResult.status === 'success' ? markPriceResult.result.quantizedValue : null
+
+  return {
+    marketId: null,
+    symbol: symbol.trim().toUpperCase(),
+    expectedIndexPriceId,
+    expectedMarkPriceId,
+    actualIndexPriceId: expectedIndexPriceId,
+    actualMarkPriceId: expectedMarkPriceId,
+    indexPrice: indexPrice?.toString() ?? null,
+    markPrice: markPrice?.toString() ?? null,
+    indexPriceIdMatches: indexPrice !== null,
+    markPriceIdMatches: markPrice !== null,
     indexPriceLive: indexPrice !== null && indexPrice > 0n,
     markPriceLive: markPrice !== null && markPrice > 0n,
   }

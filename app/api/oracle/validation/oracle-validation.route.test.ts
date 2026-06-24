@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const createMarketPublicClient = vi.fn(() => ({ multicall: vi.fn() }))
 const readOracleValidation = vi.fn()
+const readOpenOracleValidation = vi.fn()
 
 vi.mock('@/src/lib/rpc/market-reader', () => ({
   createMarketPublicClient,
 }))
 
 vi.mock('@/src/lib/rpc/oracle-validation', () => ({
+  readOpenOracleValidation,
   readOracleValidation,
 }))
 
@@ -27,6 +29,39 @@ describe('oracle validation route handler', () => {
     expect((await GET(request('http://localhost/api/oracle/validation?env=devnet&marketId=1&symbol=BTC'))).status).toBe(400)
     expect((await GET(request('http://localhost/api/oracle/validation?env=staging&marketId=bad&symbol=BTC'))).status).toBe(400)
     expect((await GET(request('http://localhost/api/oracle/validation?env=staging&marketId=1'))).status).toBe(400)
+  })
+
+  it('reads live Stork feeds by derived price id when opening a market', async () => {
+    readOpenOracleValidation.mockResolvedValueOnce({
+      marketId: null,
+      symbol: 'XAUD',
+      expectedIndexPriceId: '0x01',
+      expectedMarkPriceId: '0x02',
+      actualIndexPriceId: '0x01',
+      actualMarkPriceId: '0x02',
+      indexPrice: '3330000000',
+      markPrice: '3331000000',
+      indexPriceIdMatches: true,
+      markPriceIdMatches: true,
+      indexPriceLive: true,
+      markPriceLive: true,
+    })
+    const { GET } = await import('./route')
+
+    const response = await GET(request('http://localhost/api/oracle/validation?env=staging&symbol=XAUD'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.validation.symbol).toBe('XAUD')
+    expect(readOpenOracleValidation).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        risexStork: '0xc5e5C5994183E82Fa379d18EeE73F3f998d2E633',
+        multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
+      },
+      'XAUD',
+    )
+    expect(readOracleValidation).not.toHaveBeenCalled()
   })
 
   it('reads oracle price ids and prices for the selected market', async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Address } from 'viem'
 
 import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
-import { readOracleValidation } from './oracle-validation'
+import { readOpenOracleValidation, readOracleValidation } from './oracle-validation'
 
 const risexOracle = '0x0000000000000000000000000000000000000001' as Address
 const risexStork = '0x0000000000000000000000000000000000000002' as Address
@@ -50,5 +50,37 @@ describe('oracle validation reader', () => {
     expect(validation.markPriceIdMatches).toBe(false)
     expect(validation.indexPriceLive).toBe(false)
     expect(validation.markPriceLive).toBe(false)
+  })
+
+  it('checks open-market Stork feeds directly before a market id exists', async () => {
+    const stork = '0x0000000000000000000000000000000000000004' as Address
+    const client = {
+      readContract: vi.fn(async () => stork),
+      multicall: vi.fn(async () => [
+        { status: 'success', result: { timestampNs: 1n, quantizedValue: 3_330_000_000n } },
+        { status: 'success', result: { timestampNs: 1n, quantizedValue: 3_331_000_000n } },
+      ]),
+    }
+
+    const validation = await readOpenOracleValidation(client, { risexStork, multicall3 }, 'xaud')
+
+    expect(validation.marketId).toBeNull()
+    expect(validation.symbol).toBe('XAUD')
+    expect(validation.actualIndexPriceId).toBe(deriveIndexPriceId('XAUD'))
+    expect(validation.actualMarkPriceId).toBe(deriveMarkPriceId('XAUD'))
+    expect(validation.indexPriceLive).toBe(true)
+    expect(validation.markPriceLive).toBe(true)
+    expect(client.readContract).toHaveBeenCalledWith(
+      expect.objectContaining({ address: risexStork, functionName: 'getStork' }),
+    )
+    expect(client.multicall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        multicallAddress: multicall3,
+        contracts: [
+          expect.objectContaining({ address: stork, functionName: 'getTemporalNumericValueV1' }),
+          expect.objectContaining({ address: stork, functionName: 'getTemporalNumericValueV1' }),
+        ],
+      }),
+    )
   })
 })
