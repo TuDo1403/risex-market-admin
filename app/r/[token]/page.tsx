@@ -2,26 +2,12 @@ import Image from 'next/image'
 import { notFound } from 'next/navigation'
 
 import { decodeReview, type ReviewPayload } from '@/src/lib/review-link'
-import { requireMarketAdminSession } from '@/src/lib/server/authz'
 
 type ReviewPageProps = {
   params: Promise<{ token: string }>
 }
 
 export default async function ReviewPage({ params }: ReviewPageProps) {
-  const session = await requireMarketAdminSession()
-  if (!session) {
-    return (
-      <main className="review-page">
-        <section className="panel">
-          <p className="panel-label">review auth</p>
-          <h1>GitHub login required</h1>
-          <p>Review links are visible only to authenticated GitHub users with the link.</p>
-        </section>
-      </main>
-    )
-  }
-
   const { token } = await params
   let review: ReviewPayload
   try {

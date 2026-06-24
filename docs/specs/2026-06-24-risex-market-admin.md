@@ -12,7 +12,7 @@ The target users are protocol developers and business operators. The UI must opt
 
 - Current market table: loads live perps markets by calling `getTotalMarkets()` and then `getMarketConfig(id)` for each market id. It must not guess ids from local config order.
 - Market draft wizard: supports V1 perps operations for opening, locking/unlocking, updating config, deferred mode, and impact-notional base updates.
-- Proposal review: creates shareable, unguessable review links for GitHub-authenticated users. Review pages are read-only by default and show exact draft inputs, raw values, decoded calls, shadow result, validation result, and atomic transaction JSON.
+- Proposal review: creates shareable, stateless review links. Review pages are read-only by default and show exact draft inputs, raw values, decoded calls, validation result, and atomic transaction JSON.
 - Shadow preflight: uses `http://shadow-rpc.riselabs.xyz` and executor `0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D`. If the RPC is unreachable or execution fails, proposal submission stays blocked.
 - Submission: always builds one `AccessManager.multicall` transaction. If opened inside Safe, submit it through Safe Apps SDK; otherwise prompt the connected wallet to send the same transaction.
 
@@ -65,7 +65,6 @@ Guards:
 - numeric config converts cleanly to raw values
 - AccessManager allows each planned selector
 - shadow run passed
-- authenticated GitHub session exists before saving/review links
 
 Invariant: no UI submission button is enabled unless the machine is in `readyForExecution`.
 
@@ -98,21 +97,7 @@ The builder emits:
 
 ## Backend
 
-Route handlers:
-
-- `app/api/auth/[...nextauth]/route.ts`: Auth.js GitHub login.
-- `app/api/reviews/route.ts`: authenticated create/list review drafts.
-- `app/api/reviews/[id]/route.ts`: authenticated read/update/revoke.
-- `app/api/shadow/run/route.ts`: authenticated shadow preflight execution.
-- `app/r/[shareId]/page.tsx`: read-only review page for any GitHub-authenticated user with link.
-
-Database tables:
-
-- `users`: GitHub id, login, avatar, timestamps.
-- `market_reviews`: owner id, share id, env, draft JSON, generated tx JSON, validation result, shadow result, status.
-- `review_events`: append-only comments/status changes.
-
-Dev/test can use an in-memory store. Production requires `DATABASE_URL`.
+No application backend is required. Chain reads, oracle checks, proposal assembly, shadow preflight, and wallet/Safe submission run in the browser against public RPCs. Review links are encoded in the URL token at `/r/[token]`; there is no database, no auth route, and no review API.
 
 ## Test Plan
 
@@ -124,6 +109,6 @@ Implementation order is red-green-refactor:
 4. RPC reader tests with mocked viem client.
 5. Atomic AccessManager transaction builder tests.
 6. Shadow executor tests.
-7. Auth-protected review API tests.
+7. Stateless review-link encode/decode tests.
 8. Component tests for market table, wizard, raw/friendly toggles, and proposal diff tape.
-9. Playwright e2e for mocked GitHub session, draft creation, shadow pass, and atomic submission button enabled.
+9. Playwright e2e for draft creation, shadow pass, and atomic submission button enabled.

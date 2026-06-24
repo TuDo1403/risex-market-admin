@@ -1,7 +1,6 @@
 'use client'
 
 import Image from 'next/image'
-import { signIn, signOut, useSession } from 'next-auth/react'
 import type React from 'react'
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi'
@@ -22,7 +21,7 @@ import { deriveIndexPriceId, deriveMarkPriceId } from "@/src/lib/price-ids";
 import { cn } from "@/src/lib/utils";
 import {
   Activity, AlertTriangle, ArrowRight, Check, ChevronDown, Circle,
-  CircleDot, Copy, ExternalLink, FileJson, Github, Hash, Loader2, Lock,
+  CircleDot, Copy, ExternalLink, FileJson, Hash, Loader2, Lock,
   Plug, Plus, RefreshCw, Search, Sparkles, Terminal, Unlock,
   Wallet, X, Zap,
 } from "lucide-react";
@@ -178,8 +177,6 @@ function Header({ env, setEnv }: {
   env: EnvKey; setEnv: (e: EnvKey) => void;
 }) {
   const cfg = ENVS.find(e => e.key === env)!;
-  const { data: session } = useSession();
-  const github = session?.user?.name ?? session?.user?.email ?? null;
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
@@ -201,15 +198,6 @@ function Header({ env, setEnv }: {
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
-          {github ? (
-            <button onClick={() => signOut()} title="Sign out" className="inline-flex items-center gap-1.5 h-8 px-2 border border-border bg-surface-2 hover:bg-surface-3 rounded-sm">
-              <Github className="h-3.5 w-3.5" /><span className="font-mono text-[11px]">{github}</span>
-            </button>
-          ) : (
-            <Btn variant="outline" size="sm" onClick={() => signIn("github")}>
-              <Github className="h-3 w-3" /> Sign in
-            </Btn>
-          )}
           {isConnected && address ? (
             <button onClick={() => disconnect()} title="Disconnect" className="inline-flex items-center gap-1.5 h-8 px-2 border border-border bg-surface-2 hover:bg-surface-3 rounded-sm">
               <Wallet className="h-3.5 w-3.5 text-primary" /><span className="font-mono text-[11px]">{shortAddress(address)}</span>
@@ -551,7 +539,7 @@ function shortHex(value: string | null) {
   return `${value.slice(0, 10)}…${value.slice(-6)}`;
 }
 
-function ValidationTape({ env, github, wallet, safeInfo, state, mode, marketCount, marketId }: { env: EnvKey; github: string | null; wallet: string | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null }) {
+function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marketId }: { env: EnvKey; wallet: string | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null }) {
   const [oracleValidation, setOracleValidation] = useState<OracleValidationState>({ status: "idle" });
   const expectedIndexPriceId = state.symbol ? deriveIndexPriceId(state.symbol) : "";
   const expectedMarkPriceId = state.symbol ? deriveMarkPriceId(state.symbol) : "";
@@ -660,7 +648,6 @@ function ValidationTape({ env, github, wallet, safeInfo, state, mode, marketCoun
     ...(env === "mainnet"
       ? [{ k: "shadow", label: "Shadow run", s: "warn" as CheckState, detail: "required before transaction submission" }]
       : []),
-    { k: "gh", label: "GitHub session", s: github ? "ok" : "fail", detail: github ?? "sign in to create review link" },
     {
       k: "wallet",
       label: "Signer",
@@ -761,7 +748,7 @@ function buildPerpsConfigForPanel(env: EnvKey, state: EditorState, base: Market 
   };
 }
 
-function ProposalPanel({ env, mode, state, base, github, wallet, safeInfo, marketCount }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; github: string | null; wallet: string | null; safeInfo: SafeAppInfo | null; marketCount: number }) {
+function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; wallet: string | null; safeInfo: SafeAppInfo | null; marketCount: number }) {
   const tickerName = marketTickerName(state.symbol);
   const deployment = getDeploymentForEnv(env);
   const { sendTransaction, isPending: walletPending } = useSendTransaction();
@@ -922,7 +909,7 @@ function ProposalPanel({ env, mode, state, base, github, wallet, safeInfo, marke
           {submitState.status === "error" && <Chip tone="destructive"><X className="h-3 w-3" /> {submitState.message}</Chip>}
         </div>
         <div className="flex items-center gap-2">
-          <Btn variant="outline" size="sm" disabled={!github || !proposal.transaction} onClick={createReviewLink}>
+          <Btn variant="outline" size="sm" disabled={!proposal.transaction} onClick={createReviewLink}>
             <ExternalLink className="h-3 w-3" /> {shareCopied ? "link copied" : "shareable review link"}
           </Btn>
           <Btn
@@ -957,9 +944,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
   const [openState, setOpenState] = useState<EditorState>(emptyEditor());
   const [updateState, setUpdateState] = useState<EditorState>(emptyEditor());
   const [rawMode, setRawMode] = useState(false);
-  const { data: session } = useSession();
   const { address, isConnected } = useAccount();
-  const github = session?.user?.name ?? session?.user?.email ?? null;
   const wallet = isConnected && address ? shortAddress(address) : null;
   const [safeInfo, setSafeInfo] = useState<SafeAppInfo | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -1087,9 +1072,9 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
                 onLoadAero={() => setOpenState({ ...emptyEditor(), ...AERO_TEMPLATE })} />
             </div>
             <div className="lg:col-span-4 space-y-3">
-              <ValidationTape env={env} github={github} wallet={wallet} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} />
+              <ValidationTape env={env} wallet={wallet} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} />
               {env === "mainnet" && <ShadowPreflight mode={editorMode} marketCount={markets.length} />}
-              <ProposalPanel env={env} mode={editorMode} state={editorState} base={tab === "update" ? base : null} github={github} wallet={wallet} safeInfo={safeInfo} marketCount={markets.length} />
+              <ProposalPanel env={env} mode={editorMode} state={editorState} base={tab === "update" ? base : null} wallet={wallet} safeInfo={safeInfo} marketCount={markets.length} />
             </div>
           </>
         )}

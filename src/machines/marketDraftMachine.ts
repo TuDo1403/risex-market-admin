@@ -22,7 +22,7 @@ type MarketDraftEvent =
   | { type: 'ATOMIC_TX_FAILED'; error: string }
   | { type: 'SHADOW_PASSED' }
   | { type: 'SHADOW_FAILED'; error: string }
-  | { type: 'CREATE_REVIEW_LINK'; authenticated: boolean }
+  | { type: 'CREATE_REVIEW_LINK' }
   | { type: 'REVIEW_LINK_CREATED'; shareId: string }
   | { type: 'REVIEW_LINK_FAILED'; error: string }
   | { type: 'SUBMIT_TRANSACTION' }
@@ -138,16 +138,10 @@ export const marketDraftMachine = createMachine({
     },
     shadowPassed: {
       on: {
-        CREATE_REVIEW_LINK: [
-          {
-            target: 'creatingReviewLink',
-            guard: ({ event }) => event.authenticated,
-            actions: assign({ lastError: undefined }),
-          },
-          {
-            actions: assign({ lastError: 'GitHub session is required before creating review links' }),
-          },
-        ],
+        CREATE_REVIEW_LINK: {
+          target: 'creatingReviewLink',
+          actions: assign({ lastError: undefined }),
+        },
         EDIT: 'editing',
       },
     },

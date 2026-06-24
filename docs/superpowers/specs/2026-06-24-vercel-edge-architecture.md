@@ -2,20 +2,19 @@
 
 Date: 2026-06-24
 Status: Approved direction (decisions captured below); supersedes the server-route data
-flow in `2026-06-24-wire-console-to-real-backend-design.md` for everything except auth.
+flow in `2026-06-24-wire-console-to-real-backend-design.md`.
 
 ## Goal
 
 A near-static Next.js App Router app on Vercel where the **browser talks to RISE RPC
-directly**. The only server code is GitHub OAuth. No custom data API, no database. RISE
-testnet and mainnet RPCs are non-sensitive, so reads, oracle checks, access checks, and
-shadow preflight all run client-side; execution already runs in the wallet.
+directly**. No custom data API, no auth function, no database. RISE testnet and mainnet
+RPCs are non-sensitive, so reads, oracle checks, access checks, and shadow preflight all
+run client-side; execution already runs in the wallet.
 
 ## Decisions (locked)
 
 1. All chain interaction → client-side; delete the server data routes.
-2. Keep GitHub auth as a Vercel function (the one unavoidable server piece).
-3. Review links → stateless, URL-encoded (no database).
+2. Review links → stateless, URL-encoded (no database).
 
 ## Topology
 
@@ -24,8 +23,8 @@ Browser (Next.js client)
   ├─ viem public client ──► RISE RPC (testnet/mainnet/shadow)   [reads, multicall]
   ├─ wagmi wallet client ──► RISE RPC                            [EOA execution]
   ├─ Safe Apps SDK / JSON artifact                               [mainnet proposals]
-  └─ fetch ──► /api/auth/[...nextauth]  (Vercel Node function)   [GitHub OAuth only]
-Static assets + RSC served from Vercel CDN. No DB. No data API.
+  └─ /r/[token] static review page                               [URL-encoded payload]
+Static assets + RSC served from Vercel CDN. No DB. No app API.
 ```
 
 ## RPC configuration (non-sensitive, shipped to client)
@@ -71,14 +70,9 @@ Shadow note: `createShadowWalletClient` uses an impersonated executor account (n
 key), so it works from the browser **iff** the shadow RPC permits unlocked-account sends
 and browser CORS.
 
-## Auth — kept as a Vercel function
+## Auth
 
-- Keep NextAuth v5 GitHub at `app/api/auth/[...nextauth]/route.ts` and `auth.ts`.
-- Run on the **Node runtime (Fluid Compute)**, not Edge runtime — current Vercel guidance
-  favors Fluid Compute, and NextAuth OAuth is most compatible there. Do not add
-  `export const runtime = 'edge'` to the auth route.
-- Client uses `SessionProvider` + `useSession` (already wired). Env (Vercel project,
-  server-only): `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `AUTH_SECRET`.
+No GitHub auth. Review links are bearer URLs and are readable by anyone with the token.
 
 ## Reviews — stateless URL-encoded (no DB)
 
@@ -96,14 +90,13 @@ and browser CORS.
   ```
   Use the browser/edge-native `CompressionStream('deflate-raw')` + base64url (no new dep),
   or `fflate` (tiny) if a sync API is preferred. Round-trip unit-tested.
-- Route: replace `app/r/[shareId]/page.tsx` with `app/r/[token]/page.tsx`. Keep the
-  GitHub gate (`requireMarketAdminSession()`), then `decodeReview(token)` and render the
-  draft / generated tx / (optional) shadow result. No DB read.
+- Route: `app/r/[token]/page.tsx` calls `decodeReview(token)` and renders the draft /
+  generated tx / validation result. No DB read and no auth check.
 - DELETE: `app/api/reviews/route.ts`, `app/api/reviews/[id]/route.ts`,
   `src/lib/server/review-store.ts`, and their tests. Drop the `postgres` dependency and
   `DATABASE_URL`.
 - Console "shareable review link": build `token = encodeReview(...)`, set
-  `${location.origin}/r/${token}`, copy. Gated on session.
+  `${location.origin}/r/${token}`, copy.
 - Size: deflate keeps a typical proposal well under URL limits (~8 KB). If a payload ever
   exceeds that, fall back to a Vercel KV store behind a thin function — out of scope now.
 
@@ -111,33 +104,28 @@ and browser CORS.
 
 - Markets table ← `useMarkets(env)`.
 - ProposalPanel ← proposal-assembly (client) → real selectors/args/JSON.
-- ValidationTape ← numeric parse + client `canCall` + client oracle-validation + session/
-  wallet booleans.
+- ValidationTape ← numeric parse + client `canCall` + client oracle-validation + wallet
+  booleans.
 - ShadowPreflight ← client `executeShadowPreflight`.
 - Execution ← wagmi EOA (`sendEoaTransactions` with `useWalletClient`) / Safe JSON + SDK.
 - Review ← `encodeReview` URL.
 
 ## File-level change list
 
-- Delete: `app/api/markets/**`, `app/api/oracle/validation/**`, `app/api/shadow/run/**`,
-  `app/api/reviews/**`, `src/lib/server/review-store.ts` (+ their tests),
-  `app/r/[shareId]/page.tsx`.
+- Delete: `app/api/**`, `src/lib/server/**`, `auth.ts`, and server route tests.
 - Add: `src/lib/client/public-client.ts`, `src/lib/client/use-markets.ts` (+ read hooks),
   `src/lib/review-link.ts` (+ test), `app/r/[token]/page.tsx`.
 - Modify: `src/config/deployments.ts` (client RPCs + real mainnet rpc/chainId),
-  `components/market-admin-console.tsx` (client reads/exec/review), `.env.example`
-  (auth vars only), `package.json` (drop `postgres`; optionally add `fflate`).
-- Keep: all pure libs, `auth.ts`, `app/api/auth/**`, `app/providers.tsx`,
-  `src/lib/wagmi.ts`.
+  `components/market-admin-console.tsx` (client reads/exec/review), `.env.example`,
+  `package.json` (drop backend/auth dependencies).
+- Keep: all pure libs, `app/providers.tsx`, `src/lib/wagmi.ts`.
 
 ## Vercel project config
 
 - `vercel.ts` (or defaults): framework `nextjs`; no edge override on the auth route.
-- Project env (server-only): `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `AUTH_SECRET`.
-  Remove `DATABASE_URL`, `MAINNET_RPC_URL`, `TESTNET_RPC_URL`, `STAGING_RPC_URL`,
-  `MARKET_ADMIN_TEST_AUTH` from required runtime config (RPC is in code; test-auth is a
-  test-only flag).
-- `.env.example` reduced to the three `AUTH_*` vars.
+- No required server env. Remove `DATABASE_URL`, `AUTH_*`, `MAINNET_RPC_URL`,
+  `TESTNET_RPC_URL`, `STAGING_RPC_URL`, and `MARKET_ADMIN_TEST_AUTH` from required
+  runtime config.
 
 ## Risks / verification
 

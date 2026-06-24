@@ -7,7 +7,6 @@ import type { EnvKey, Market } from '@/src/lib/lovable-risex'
 import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
 
 const hookState = vi.hoisted(() => ({
-  session: null as { user?: { name?: string; email?: string } } | null,
   address: null as string | null,
   connector: { id: 'mock', name: 'Mock connector', type: 'mock' },
 }))
@@ -16,14 +15,6 @@ const rpcMocks = vi.hoisted(() => ({
   readLiveMarkets: vi.fn(),
   readOracleValidation: vi.fn(),
   readOpenOracleValidation: vi.fn(),
-}))
-
-vi.mock('next-auth/react', () => ({
-  useSession: () => ({ data: hookState.session }),
-  signIn: vi.fn(),
-  signOut: vi.fn(() => {
-    hookState.session = null
-  }),
 }))
 
 vi.mock('wagmi', () => ({
@@ -69,7 +60,6 @@ function textIncludes(value: string) {
 
 describe('MarketAdminConsole Lovable source port', () => {
   beforeEach(() => {
-    hookState.session = null
     hookState.address = null
     rpcMocks.readLiveMarkets.mockImplementation(async (env: EnvKey) => marketsByEnv[env])
     const validate = async (_client: unknown, _addresses: unknown, marketIdOrSymbol: number | string, maybeSymbol?: string) => {
@@ -167,9 +157,6 @@ describe('MarketAdminConsole Lovable source port', () => {
 
     await user.click(screen.getByRole('button', { name: /open market/i }))
     expect(screen.getAllByText(/AccessManager\.multicall/i).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeDisabled()
-    hookState.session = { user: { name: '@rise-ops' } }
-    view.rerender(<MarketAdminConsole initialEnv="mainnet" />)
     expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeDisabled()
 
     await user.click(within(screen.getByRole('group', { name: /environment/i })).getByRole('button', { name: /environment mainnet/i }))

@@ -36,7 +36,7 @@ describe('marketDraftMachine', () => {
     actor.send({ type: 'SHADOW_PASSED' })
     expect(actor.getSnapshot().value).toBe('shadowPassed')
 
-    actor.send({ type: 'CREATE_REVIEW_LINK', authenticated: true })
+    actor.send({ type: 'CREATE_REVIEW_LINK' })
     expect(actor.getSnapshot().value).toBe('creatingReviewLink')
 
     actor.send({ type: 'REVIEW_LINK_CREATED', shareId: 'share_123' })
@@ -55,7 +55,7 @@ describe('marketDraftMachine', () => {
     expect(actor.getSnapshot().value).toBe('readyForExecution')
   })
 
-  it('blocks review link creation without an authenticated GitHub session', () => {
+  it('creates review links without backend authentication', () => {
     const actor = startMachine()
     actor.send({ type: 'SELECT_ENV', env: 'mainnet' })
     actor.send({ type: 'DEPLOYMENTS_LOADED' })
@@ -64,10 +64,10 @@ describe('marketDraftMachine', () => {
     actor.send({ type: 'VALIDATION_PASSED' })
     actor.send({ type: 'ATOMIC_TX_BUILT' })
     actor.send({ type: 'SHADOW_PASSED' })
-    actor.send({ type: 'CREATE_REVIEW_LINK', authenticated: false })
+    actor.send({ type: 'CREATE_REVIEW_LINK' })
 
-    expect(actor.getSnapshot().value).toBe('shadowPassed')
-    expect(actor.getSnapshot().context.lastError).toMatch(/GitHub session/)
+    expect(actor.getSnapshot().value).toBe('creatingReviewLink')
+    expect(actor.getSnapshot().context.lastError).toBeUndefined()
   })
 
   it('does not submit a transaction before readyForExecution', () => {
