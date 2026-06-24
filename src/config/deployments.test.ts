@@ -1,3 +1,4 @@
+import { getAddress } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -69,5 +70,11 @@ describe('deployment environment config', () => {
 
     expect(runtime.rpcUrl).toBe('http://localhost:8545')
     expect(runtime.addresses.perps).toBe('0x53f10fAcFC8965750494E6965F5d6dA39B41d852')
+  })
+
+  it('exposes the USDC quote token per environment', () => {
+    expect(getDeploymentForEnv('testnet').addresses.usdc).toBe(getAddress('0x8c49BaEeC2Ea2356598Ef33eA5dd52267643E677'))
+    expect(getDeploymentForEnv('staging').addresses.usdc).toBe(getAddress('0x8c49BaEeC2Ea2356598Ef33eA5dd52267643E677'))
+    expect(getDeploymentForEnv('mainnet').addresses.usdc).toBe(getAddress('0xe436820ba0C69702c1d3E601d421c0eF38262739'))
   })
 })

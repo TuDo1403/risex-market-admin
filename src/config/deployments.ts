@@ -10,6 +10,7 @@ export type DeploymentAddresses = {
   perps: Address
   risexOracle: Address
   risexStork: Address
+  usdc: Address
 }
 
 export type DeploymentEnvironment = {
@@ -27,8 +28,10 @@ type RuntimeEnv = NodeJS.ProcessEnv | Record<string, string | undefined>
 const RISE_TESTNET_CHAIN_ID = 11155931
 const MAINNET_RPC_URL = 'https://rpc.risechain.com'
 const SHADOW_RPC_URL = 'http://shadow-rpc.riselabs.xyz'
-const TESTNET_RPC_URL = 'https://testnet.riselabs.xyz'
+export const TESTNET_RPC_URL = 'https://testnet.riselabs.xyz'
 const SHADOW_EXECUTOR = getAddress('0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D')
+const TESTNET_USDC = getAddress('0x8c49BaEeC2Ea2356598Ef33eA5dd52267643E677')
+const MAINNET_USDC = getAddress('0xe436820ba0C69702c1d3E601d421c0eF38262739')
 const MULTICALL3_ADDRESS = getAddress('0xcA11bde05977b3631167028862bE2a173976CA11')
 
 const mainnetAddresses: DeploymentAddresses = {
@@ -37,6 +40,7 @@ const mainnetAddresses: DeploymentAddresses = {
   perps: getAddress('0x53f10fAcFC8965750494E6965F5d6dA39B41d852'),
   risexOracle: getAddress('0x8fC4D0Cf74cdF595254cB763d4C05D38Df0e9503'),
   risexStork: getAddress('0x76A559C716c5B93b9d743e08D9E9f23f96a4f975'),
+  usdc: MAINNET_USDC,
 }
 
 const baseDeployments: Record<MarketAdminEnv, DeploymentEnvironment> = {
@@ -52,6 +56,7 @@ const baseDeployments: Record<MarketAdminEnv, DeploymentEnvironment> = {
       perps: getAddress('0x6B3cb699940a1A1814c71b8260a01eaC86f26572'),
       risexOracle: getAddress('0xb588f71d964a8cDBFA0B4c2A918ccb659a6EF2eA'),
       risexStork: getAddress('0xee01CF24AD96d4734fbBC3EDeF2139D4Fca74D47'),
+      usdc: TESTNET_USDC,
     },
   },
   staging: {
@@ -66,6 +71,7 @@ const baseDeployments: Record<MarketAdminEnv, DeploymentEnvironment> = {
       perps: getAddress('0x75A08e72805337aEbF0944D2caf152Fee7fA158A'),
       risexOracle: getAddress('0xb0A9a42E5cd3CA48C1f288CB0B427f41f3ab4885'),
       risexStork: getAddress('0xc5e5C5994183E82Fa379d18EeE73F3f998d2E633'),
+      usdc: TESTNET_USDC,
     },
   },
   mainnet: {
