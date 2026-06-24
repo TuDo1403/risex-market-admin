@@ -10,6 +10,7 @@ import { getPublicClient } from "@/src/lib/client/public-client";
 import { liveMarketToDisplayMarket } from "@/src/lib/market-view";
 import { readLiveMarkets } from "@/src/lib/rpc/market-reader";
 import { readOpenOracleValidation, readOracleValidation } from "@/src/lib/rpc/oracle-validation";
+import { encodeReview } from "@/src/lib/review-link";
 import { detectSafeApp, submitSafeAppTransaction, type SafeAppInfo } from "@/src/lib/safe-app";
 import { buildOpenMarketProposal, buildUpdateMarketProposal, type AtomicAccessManagerTx } from "@/src/lib/proposal-builder";
 import {
@@ -843,6 +844,21 @@ function ProposalPanel({ env, mode, state, base, github, wallet, safeInfo, marke
 
   const canSubmit = !!proposal.transaction && (!!safeInfo || !!wallet) && submitState.status !== "submitting" && !walletPending;
   const submitLabel = safeInfo ? "submit via Safe App" : "send wallet tx";
+  const [shareCopied, setShareCopied] = useState(false);
+
+  function createReviewLink() {
+    if (!proposal.transaction) return;
+    const token = encodeReview({
+      env,
+      draft: state,
+      proposal: proposal.transaction,
+      createdAt: new Date().toISOString(),
+    });
+    const url = `${window.location.origin}/r/${token}`;
+    void navigator.clipboard?.writeText(url);
+    setShareCopied(true);
+    window.setTimeout(() => setShareCopied(false), 2000);
+  }
 
   async function submitAtomicTransaction(transaction: AtomicAccessManagerTx) {
     setSubmitState({ status: "submitting" });
@@ -906,7 +922,9 @@ function ProposalPanel({ env, mode, state, base, github, wallet, safeInfo, marke
           {submitState.status === "error" && <Chip tone="destructive"><X className="h-3 w-3" /> {submitState.message}</Chip>}
         </div>
         <div className="flex items-center gap-2">
-          <Btn variant="outline" size="sm" disabled={!github}><ExternalLink className="h-3 w-3" /> shareable review link</Btn>
+          <Btn variant="outline" size="sm" disabled={!github || !proposal.transaction} onClick={createReviewLink}>
+            <ExternalLink className="h-3 w-3" /> {shareCopied ? "link copied" : "shareable review link"}
+          </Btn>
           <Btn
             variant="primary"
             disabled={!canSubmit}
