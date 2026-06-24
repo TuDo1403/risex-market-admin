@@ -156,8 +156,45 @@ export const ordersManagerAbi = [
     type: 'function',
     name: 'isDeferredMode',
     stateMutability: 'view',
-    inputs: [{ name: 'marketId', type: 'uint16' }],
+    inputs: [
+      { name: 'protocol', type: 'address' },
+      { name: 'marketId', type: 'uint16' },
+    ],
     outputs: [{ name: '', type: 'bool' }],
+  },
+] as const
+
+export const risexOracleAbi = [
+  {
+    type: 'function',
+    name: 'getIndexPrice',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint16' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'getMarkPrice',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint16' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const
+
+export const risexStorkAbi = [
+  {
+    type: 'function',
+    name: 'getIndexPriceId',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint16' }],
+    outputs: [{ name: '', type: 'bytes32' }],
+  },
+  {
+    type: 'function',
+    name: 'getMarkPriceId',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint16' }],
+    outputs: [{ name: '', type: 'bytes32' }],
   },
 ] as const
 

@@ -135,7 +135,10 @@ export function rawMmr(pct: string | number) {
     return "invalid";
   }
 }
-export function rawImpact(usdc: number) { return BigInt(Math.round(usdc * 1e6)).toString(); }
+export function rawImpact(usdc: number) {
+  if (!Number.isSafeInteger(usdc) || usdc < 0) return "invalid";
+  return BigInt(usdc).toString();
+}
 export function rawStepPrice(p: number, precision = PROTOCOL_PRICE_PRECISION) { return BigInt(Math.round(p * 10 ** precision)).toString(); }
 export function rawStepSize(s: number, decimals = PROTOCOL_TOKEN_DECIMALS) {
   // emulate token-base-units as scientific bigint

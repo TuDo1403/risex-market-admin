@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MarketAdminConsole } from './market-admin-console'
 import type { EnvKey, Market } from '@/src/lib/lovable-risex'
+import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
 
 function textIncludes(value: string) {
   return (_content: string, node: Element | null) => node?.textContent?.includes(value) ?? false
@@ -13,6 +14,26 @@ describe('MarketAdminConsole Lovable source port', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/oracle/validation') {
+        const symbol = url.searchParams.get('symbol') ?? 'DOGE'
+        return {
+          ok: true,
+          json: async () => ({
+            validation: {
+              expectedIndexPriceId: deriveIndexPriceId(symbol),
+              expectedMarkPriceId: deriveMarkPriceId(symbol),
+              actualIndexPriceId: deriveIndexPriceId(symbol),
+              actualMarkPriceId: deriveMarkPriceId(symbol),
+              indexPrice: '100000000',
+              markPrice: '100100000',
+              indexPriceIdMatches: true,
+              markPriceIdMatches: true,
+              indexPriceLive: true,
+              markPriceLive: true,
+            },
+          }),
+        }
+      }
       const env = (url.searchParams.get('env') ?? 'staging') as EnvKey
       return {
         ok: true,
@@ -50,10 +71,16 @@ describe('MarketAdminConsole Lovable source port', () => {
 
     expect(screen.getByText(/Update Market.*#4 DOGE\/USDC/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Step size/i)).toHaveValue(10)
+    expect(screen.getByLabelText(/Step size/i)).toBeDisabled()
     expect(screen.getByLabelText(/Step price/i)).toHaveValue(0.000001)
+    expect(screen.getByLabelText(/Step price/i)).toBeDisabled()
+    expect(screen.getAllByText(/immutable after open/i).length).toBeGreaterThan(0)
     expect(screen.getByText('loaded')).toBeInTheDocument()
     expect(screen.getByText(/Before \/ After/i)).toBeInTheDocument()
     expect(screen.getAllByText(/updateMarketConfig/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/stepSize=/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/stepPrice=/i)).not.toBeInTheDocument()
+    expect(await screen.findByText(/index 100000000 · mark 100100000/i)).toBeInTheDocument()
   })
 
   it('explains how to fill friendly values while showing raw conversions', async () => {
@@ -69,9 +96,12 @@ describe('MarketAdminConsole Lovable source port', () => {
     expect(screen.getByLabelText(/Step price/i)).toHaveValue(0.00001)
     expect(screen.getAllByText(textIncludes('raw: 1000000000000000000')).length).toBeGreaterThan(0)
     expect(screen.getAllByText(textIncludes('raw: 1000')).length).toBeGreaterThan(0)
-    expect(screen.getByText(/USDC \(6 decimals\)/i)).toBeInTheDocument()
+    expect(screen.getAllByText(textIncludes('raw: 50')).length).toBeGreaterThan(0)
+    expect(screen.getByText(/stored uint64; effective = base × 1e18 × maxLev/i)).toBeInTheDocument()
     expect(screen.getByText(/200 bps = 2%/i)).toBeInTheDocument()
     expect(screen.getAllByText(/setDeferredMode/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/expected index/i)).toBeInTheDocument()
+    expect(screen.getByText(/queried after market exists/i)).toBeInTheDocument()
     expect(screen.getByText('FRIENDLY')).toBeInTheDocument()
     expect(screen.getByText('RAW')).toBeInTheDocument()
   })
@@ -144,7 +174,7 @@ const marketsByEnv: Record<EnvKey, Market[]> = {
     market({ id: 1, symbol: 'BTC', maxLeverage: 25, mmrPct: '1.8' }),
     market({ id: 2, symbol: 'SOL', maxLeverage: 20, mmrPct: '2.5' }),
     market({ id: 3, symbol: 'ARB', status: 'locked' }),
-    market({ id: 4, symbol: 'DOGE', deferredSettlement: true, stepSize: 10, stepPrice: 0.000001 }),
+    market({ id: 4, symbol: 'DOGE', quote: 'USDT', deferredSettlement: true, stepSize: 10, stepPrice: 0.000001 }),
   ],
   testnet: [
     market({ id: 0, symbol: 'ETH', maxLeverage: 50 }),

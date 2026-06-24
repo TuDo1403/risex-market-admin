@@ -1,11 +1,14 @@
 'use client'
 
+import Image from 'next/image'
 import type React from 'react'
 import { useEffect, useMemo, useState } from "react";
 import {
   ENVS, EnvKey, Market, AERO_TEMPLATE, QUOTE_SYMBOL,
   fmt, rawMmr, rawImpact, rawStepPrice, rawStepSize,
+  marketTickerName,
 } from "@/src/lib/lovable-risex";
+import { deriveIndexPriceId, deriveMarkPriceId } from "@/src/lib/price-ids";
 import { cn } from "@/src/lib/utils";
 import {
   Activity, AlertTriangle, ArrowRight, Check, ChevronDown, Circle,
@@ -19,11 +22,7 @@ import {
 function RiseLogo({ className }: { className?: string }) {
   return (
     <div className={cn("inline-flex items-center gap-2", className)}>
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden>
-        <path d="M3 18 L9 8 L13 14 L21 4" stroke="hsl(var(--primary))" strokeWidth="2.2" strokeLinecap="square" strokeLinejoin="miter" />
-        <path d="M16 4 H21 V9" stroke="hsl(var(--primary))" strokeWidth="2.2" strokeLinecap="square" />
-      </svg>
-      <span className="font-mono text-[13px] tracking-[0.18em] font-semibold">RISE<span className="text-primary">x</span></span>
+      <Image src="/icons/rise.svg" alt="RISEx" width={70} height={25} priority className="h-5 w-auto" />
     </div>
   );
 }
@@ -67,11 +66,11 @@ function Btn({ children, variant = "default", size = "md", className, ...p }: Re
 }
 
 function Field({
-  label, value, onChange, raw, suffix, helper, mode, type = "number",
+  label, value, onChange, raw, suffix, helper, mode, type = "number", disabled = false,
 }: {
   label: string; value: string | number; onChange: (v: string) => void;
   raw?: string; suffix?: string; helper?: string; mode: "friendly" | "raw";
-  type?: "text" | "number";
+  type?: "text" | "number"; disabled?: boolean;
 }) {
   return (
     <div className="space-y-1">
@@ -84,8 +83,9 @@ function Field({
           aria-label={label}
           type={type}
           value={value}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
-          className="flex-1 bg-transparent px-2 py-1.5 font-mono text-[12px] outline-none w-full min-w-0"
+          className="flex-1 bg-transparent px-2 py-1.5 font-mono text-[12px] outline-none w-full min-w-0 disabled:cursor-not-allowed disabled:text-muted-foreground"
         />
         {mode === "raw" && <span className="px-1.5 py-1.5 text-[9px] font-mono text-muted-foreground border-l border-border bg-background/40">RAW</span>}
       </div>
@@ -299,7 +299,7 @@ function MarketsTable({
                 <td className="px-2 py-1.5">
                   <div className="flex items-center gap-1.5">
                     {selectedId === m.id && <Dot color="primary" />}
-                    <span className="font-mono text-[12px] text-foreground">{m.symbol}/{m.quote}</span>
+                    <span className="font-mono text-[12px] text-foreground">{marketTickerName(m.symbol)}</span>
                   </div>
                 </td>
                 <td className="px-2 py-1.5"><StatusPill s={m.status} /></td>
@@ -398,7 +398,7 @@ function MarketEditor({
     <section className="panel">
       <div className="panel-header">
         <div className="flex items-center gap-2">
-          <span className="panel-title">{mode === "open" ? "Open Market" : `Update Market${base ? ` · #${base.id} ${base.symbol}/${base.quote}` : ""}`}</span>
+          <span className="panel-title">{mode === "open" ? "Open Market" : `Update Market${base ? ` · #${base.id} ${marketTickerName(base.symbol)}` : ""}`}</span>
           {mode === "update" && !base && <Chip tone="warning">no row selected — pick from table</Chip>}
           {mode === "update" && base && <Chip tone="accent"><FileJson className="h-3 w-3" /> loaded</Chip>}
         </div>
@@ -467,13 +467,13 @@ function MarketEditor({
               <Field label="Max leverage" suffix="x" value={s.maxLeverage} onChange={(v) => set("maxLeverage", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.maxLeverage)} helper="1–50" />
               <Field label="Maintenance margin ratio" suffix="%" value={s.mmrPct} onChange={(v) => set("mmrPct", v)} mode={rawMode ? "raw" : "friendly"} raw={rawMmr(s.mmrPct) + "  (×1e18)"} helper="exact decimal string" />
               <Field label="Match price band" suffix="bps" value={s.priceBandBps} onChange={(v) => set("priceBandBps", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.priceBandBps)} helper="200 bps = 2%" />
-              <Field label="Impact notional base" suffix="USDC" value={s.impactBaseUsdc} onChange={(v) => set("impactBaseUsdc", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawImpact(s.impactBaseUsdc) + "  (6)"} helper="USDC (6 decimals)" />
+              <Field label="Impact notional base" suffix="USDC" value={s.impactBaseUsdc} onChange={(v) => set("impactBaseUsdc", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawImpact(s.impactBaseUsdc)} helper="stored uint64; effective = base × 1e18 × maxLev" />
             </div>
 
             {/* Sizing */}
             <div className="space-y-2">
-              <Field label="Step size" suffix={s.symbol || "TOKEN"} value={s.stepSize} onChange={(v) => set("stepSize", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawStepSize(s.stepSize)} helper="18 decimals" />
-              <Field label="Step price" suffix={s.quote} value={s.stepPrice} onChange={(v) => set("stepPrice", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawStepPrice(s.stepPrice) + "  (×10^8)"} helper="price precision 8" />
+              <Field label="Step size" suffix={s.symbol || "TOKEN"} value={s.stepSize} onChange={(v) => set("stepSize", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawStepSize(s.stepSize)} helper={mode === "update" ? "immutable after open" : "18 decimals"} disabled={mode === "update"} />
+              <Field label="Step price" suffix={QUOTE_SYMBOL} value={s.stepPrice} onChange={(v) => set("stepPrice", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawStepPrice(s.stepPrice) + "  (×10^8)"} helper={mode === "update" ? "immutable after open" : "price precision 8"} disabled={mode === "update"} />
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Min order step" value={s.minOrderStep} onChange={(v) => set("minOrderStep", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.minOrderStep)} />
                 <Field label="Max order step" value={s.maxOrderStep} onChange={(v) => set("maxOrderStep", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.maxOrderStep)} />
@@ -493,8 +493,6 @@ function MarketEditor({
                 <DiffRow label="deferred settlement" before={base.deferredSettlement ? "enabled" : "sync"} after={s.deferredSettlement ? "enabled" : "sync"} />
                 <DiffRow label="maxLeverage" before={`${base.maxLeverage}x`} after={`${s.maxLeverage}x`} />
                 <DiffRow label="mmr %" before={`${base.mmrPct}%`} after={`${s.mmrPct}%`} raw={{ b: base.mmrRaw, a: rawMmr(s.mmrPct) }} />
-                <DiffRow label="stepSize" before={fmt(base.stepSize)} after={fmt(s.stepSize)} raw={{ b: base.stepSizeRaw, a: rawStepSize(s.stepSize) }} />
-                <DiffRow label="stepPrice" before={`$${fmt(base.stepPrice)}`} after={`$${fmt(s.stepPrice)}`} raw={{ b: base.stepPriceRaw, a: rawStepPrice(s.stepPrice) }} />
                 <DiffRow label="minOrderStep" before={base.minOrderStep} after={s.minOrderStep} />
                 <DiffRow label="maxOrderStep" before={base.maxOrderStep} after={s.maxOrderStep} />
                 <DiffRow label="oiLimitSteps" before={base.oiLimitSteps} after={s.oiLimitSteps} />
@@ -513,10 +511,132 @@ function MarketEditor({
 
 type CheckState = "ok" | "warn" | "fail" | "pending";
 
-function ValidationTape({ env, github, wallet, state, mode, marketCount }: { env: EnvKey; github: string | null; wallet: string | null; state: EditorState; mode: "open" | "update"; marketCount: number }) {
+type OracleValidationResult = {
+  expectedIndexPriceId: string;
+  expectedMarkPriceId: string;
+  actualIndexPriceId: string | null;
+  actualMarkPriceId: string | null;
+  indexPrice: string | null;
+  markPrice: string | null;
+  indexPriceIdMatches: boolean;
+  markPriceIdMatches: boolean;
+  indexPriceLive: boolean;
+  markPriceLive: boolean;
+}
+
+type OracleValidationState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ok"; validation: OracleValidationResult }
+  | { status: "error"; message: string }
+
+function shortHex(value: string | null) {
+  if (!value) return "missing";
+  return `${value.slice(0, 10)}…${value.slice(-6)}`;
+}
+
+function ValidationTape({ env, github, wallet, state, mode, marketCount, marketId }: { env: EnvKey; github: string | null; wallet: string | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null }) {
+  const [oracleValidation, setOracleValidation] = useState<OracleValidationState>({ status: "idle" });
+  const expectedIndexPriceId = state.symbol ? deriveIndexPriceId(state.symbol) : "";
+  const expectedMarkPriceId = state.symbol ? deriveMarkPriceId(state.symbol) : "";
+
+  useEffect(() => {
+    if (mode !== "update" || marketId === null || marketId === undefined || !state.symbol) {
+      setOracleValidation({ status: "idle" });
+      return;
+    }
+
+    const controller = new AbortController();
+    setOracleValidation({ status: "loading" });
+
+    fetch(`/api/oracle/validation?env=${env}&marketId=${marketId}&symbol=${encodeURIComponent(state.symbol)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const body = (await response.json()) as { validation?: OracleValidationResult; error?: string };
+        if (!response.ok || !body.validation) {
+          throw new Error(body.error ?? `oracle validation failed with ${response.status}`);
+        }
+        setOracleValidation({ status: "ok", validation: body.validation });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setOracleValidation({
+          status: "error",
+          message: error instanceof Error ? error.message : "oracle validation failed",
+        });
+      });
+
+    return () => controller.abort();
+  }, [env, marketId, mode, state.symbol]);
+
+  const oracleItems: { k: string; label: string; s: CheckState; detail: string }[] =
+    mode === "open"
+      ? [
+          {
+            k: "oracleIds",
+            label: "Oracle price IDs",
+            s: state.symbol ? "pending" : "fail",
+            detail: state.symbol
+              ? `expected index ${shortHex(expectedIndexPriceId)} · mark ${shortHex(expectedMarkPriceId)}`
+              : "enter a market symbol",
+          },
+          {
+            k: "oraclePrices",
+            label: "Oracle prices",
+            s: "pending",
+            detail: "queried after market exists",
+          },
+        ]
+      : [
+          {
+            k: "oracleIds",
+            label: "Oracle price IDs",
+            s:
+              oracleValidation.status === "ok"
+                ? oracleValidation.validation.indexPriceIdMatches && oracleValidation.validation.markPriceIdMatches
+                  ? "ok"
+                  : "fail"
+                : oracleValidation.status === "error"
+                  ? "fail"
+                  : "pending",
+            detail:
+              oracleValidation.status === "ok"
+                ? `index ${shortHex(oracleValidation.validation.actualIndexPriceId)} · mark ${shortHex(oracleValidation.validation.actualMarkPriceId)}`
+                : oracleValidation.status === "error"
+                  ? oracleValidation.message
+                  : "checking configured Stork IDs",
+          },
+          {
+            k: "oraclePrices",
+            label: "Oracle prices",
+            s:
+              oracleValidation.status === "ok"
+                ? oracleValidation.validation.indexPriceLive && oracleValidation.validation.markPriceLive
+                  ? "ok"
+                  : "fail"
+                : oracleValidation.status === "error"
+                  ? "fail"
+                  : "pending",
+            detail:
+              oracleValidation.status === "ok"
+                ? `index ${oracleValidation.validation.indexPrice ?? "missing"} · mark ${oracleValidation.validation.markPrice ?? "missing"}`
+                : oracleValidation.status === "error"
+                  ? oracleValidation.message
+                  : "reading RISExOracle prices",
+          },
+        ];
+
   const items: { k: string; label: string; s: CheckState; detail: string }[] = [
-    { k: "precision", label: "Numeric precision", s: state.stepSize > 0 && state.stepPrice > 0 ? "ok" : "fail", detail: `stepSize ${state.stepSize} · stepPrice ${state.stepPrice}` },
+    {
+      k: "precision",
+      label: "Step precision",
+      s: mode === "update" || (state.stepSize > 0 && state.stepPrice > 0) ? "ok" : "fail",
+      detail: mode === "update" ? "immutable after open" : `stepSize ${state.stepSize} · stepPrice ${state.stepPrice}`,
+    },
     { k: "nextId", label: mode === "open" ? "Next market id" : "Existing market id", s: "ok", detail: mode === "open" ? `${marketCount}` : "matched" },
+    ...oracleItems,
     ...(env === "mainnet"
       ? [{ k: "shadow", label: "Shadow run", s: "warn" as CheckState, detail: "required before Safe" }]
       : []),
@@ -594,13 +714,12 @@ function ShadowPreflight({ mode, marketCount }: { mode: "open" | "update"; marke
 
 function ProposalPanel({ env, mode, state, base, github, wallet }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; github: string | null; wallet: string | null }) {
   const isSafe = env === "mainnet";
+  const tickerName = marketTickerName(state.symbol);
   const calls: { fn: string; args: string[]; required: boolean }[] = mode === "open" ? [
     { fn: "openMarket", required: true, args: [
-      `name="${state.symbol}/${state.quote}"`,
+      `name="${tickerName}"`,
       `maxLeverage=${state.maxLeverage}`,
       `mmr=${rawMmr(state.mmrPct)}`,
-      `stepSize=${rawStepSize(state.stepSize)}`,
-      `stepPrice=${rawStepPrice(state.stepPrice)}`,
       `minOrderStep=${state.minOrderStep}`,
       `maxOrderStep=${state.maxOrderStep}`,
       `oiLimit=${state.oiLimitSteps}`,
@@ -613,8 +732,6 @@ function ProposalPanel({ env, mode, state, base, github, wallet }: { env: EnvKey
       `marketId=${base?.id ?? "?"}`,
       `maxLeverage=${state.maxLeverage}`,
       `mmr=${rawMmr(state.mmrPct)}`,
-      `stepSize=${rawStepSize(state.stepSize)}`,
-      `stepPrice=${rawStepPrice(state.stepPrice)}`,
       `minOrderStep=${state.minOrderStep}`,
       `maxOrderStep=${state.maxOrderStep}`,
       `oiLimit=${state.oiLimitSteps}`,
@@ -629,7 +746,7 @@ function ProposalPanel({ env, mode, state, base, github, wallet }: { env: EnvKey
     version: "1.0",
     chainId: env === "mainnet" ? 11155930 : 11155931,
     createdAt: new Date().toISOString(),
-    meta: { name: `${mode === "open" ? "Open" : "Update"} ${state.symbol}/${state.quote}`, env },
+    meta: { name: `${mode === "open" ? "Open" : "Update"} ${tickerName}`, env },
     transactions: calls.map(c => ({ to: ENVS.find(e => e.key === env)!.access, value: "0", data: "0x", contractMethod: c.fn })),
   }, null, 2);
 
@@ -846,7 +963,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
                 onLoadAero={() => setOpenState({ ...emptyEditor(), ...AERO_TEMPLATE })} />
             </div>
             <div className="lg:col-span-4 space-y-3">
-              <ValidationTape env={env} github={github} wallet={wallet} state={editorState} mode={editorMode} marketCount={markets.length} />
+              <ValidationTape env={env} github={github} wallet={wallet} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} />
               {env === "mainnet" && <ShadowPreflight mode={editorMode} marketCount={markets.length} />}
               <ProposalPanel env={env} mode={editorMode} state={editorState} base={tab === "update" ? base : null} github={github} wallet={wallet} />
             </div>

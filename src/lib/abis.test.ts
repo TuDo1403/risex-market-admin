@@ -21,10 +21,10 @@ describe('contract abis', () => {
     expect(item!.inputs[1].name).toBe('unlocked')
   })
 
-  it('ordersManager exposes isDeferredMode(uint16)->bool', () => {
-    const sel = toFunctionSelector('isDeferredMode(uint16)')
+  it('ordersManager exposes isDeferredMode(address,uint16)->bool', () => {
     const item = getAbiItem({ abi: ordersManagerAbi, name: 'isDeferredMode' })
     expect(item).toBeDefined()
-    expect(sel.startsWith('0x')).toBe(true)
+    expect(item!.inputs.map((i) => i.type)).toEqual(['address', 'uint16'])
+    expect(toFunctionSelector(item!)).toBe(toFunctionSelector('isDeferredMode(address,uint16)'))
   })
 })
