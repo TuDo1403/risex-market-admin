@@ -1,9 +1,7 @@
 import { keccak256, toHex, type Hex } from 'viem'
 
-import { QUOTE_SYMBOL } from './lovable-risex'
-
 function normalizedPair(symbol: string): string {
-  return `${symbol.trim().toUpperCase()}${QUOTE_SYMBOL}`
+  return `${symbol.trim().toUpperCase()}USDC`
 }
 
 export function deriveIndexPriceId(symbol: string): Hex {
