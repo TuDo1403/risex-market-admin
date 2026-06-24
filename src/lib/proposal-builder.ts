@@ -1,17 +1,7 @@
-import {
-  concatHex,
-  encodeFunctionData,
-  numberToHex,
-  pad,
-  size,
-  type Address,
-  type Hex,
-} from 'viem'
+import { encodeFunctionData, type Address, type Hex } from 'viem'
 
-import { multiSendAbi, perpsMarketConfigAbi } from './abis'
+import { accessManagerAbi, perpsMarketConfigAbi } from './abis'
 import type { PerpsMarketConfig } from './rpc/market-reader'
-
-export const MULTISEND_CALL_ONLY = '0x9641d764fc13c8B624c04430C7356C1C7C8102e2' as Address
 
 export type OrdersBookConfig = {
   stepSize: bigint
@@ -22,23 +12,19 @@ export type InnerCall = {
   to: Address
   value: '0'
   data: Hex
-  operation: 0
   functionName: string
 }
 
-export type SafeTxJson = {
+export type AtomicAccessManagerTx = {
   to: Address
   value: '0'
   data: Hex
-  operation: 1
-  baseGas: '0'
-  gasPrice: '0'
-  gasToken: Address
-  refundReceiver: Address
-  safeTxGas: '0'
+  functionName: 'AccessManager.multicall'
+  innerCalls: InnerCall[]
 }
 
 export type OpenMarketProposalInput = {
+  accessManagerAddress: Address
   perpsAddress: Address
   nextMarketId: number
   perpsConfig: PerpsMarketConfig
@@ -49,13 +35,20 @@ export type OpenMarketProposalInput = {
   impactNotionalBaseUsdc?: bigint
 }
 
-export type OpenMarketProposal = {
-  innerCalls: InnerCall[]
-  multiSendPayload: Hex
-  safeTx: SafeTxJson
+export type UpdateMarketProposalInput = {
+  accessManagerAddress: Address
+  perpsAddress: Address
+  marketId: number
+  perpsConfig: PerpsMarketConfig
+  lock?: boolean
+  deferredMode?: boolean
+  impactNotionalBaseUsdc?: bigint
 }
 
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address
+export type MarketProposal = {
+  innerCalls: InnerCall[]
+  transaction: AtomicAccessManagerTx
+}
 
 function encodePerpsMarketConfig(config: PerpsMarketConfig) {
   return {
@@ -68,12 +61,11 @@ function encodePerpsMarketConfig(config: PerpsMarketConfig) {
   }
 }
 
-export function buildOpenMarketProposal(input: OpenMarketProposalInput): OpenMarketProposal {
+export function buildOpenMarketProposal(input: OpenMarketProposalInput): MarketProposal {
   const innerCalls: InnerCall[] = [
     {
       to: input.perpsAddress,
       value: '0',
-      operation: 0,
       functionName: 'openMarket',
       data: encodeFunctionData({
         abi: perpsMarketConfigAbi,
@@ -94,7 +86,6 @@ export function buildOpenMarketProposal(input: OpenMarketProposalInput): OpenMar
     innerCalls.push({
       to: input.perpsAddress,
       value: '0',
-      operation: 0,
       functionName: 'setDeferredMode',
       data: encodeFunctionData({
         abi: perpsMarketConfigAbi,
@@ -108,7 +99,6 @@ export function buildOpenMarketProposal(input: OpenMarketProposalInput): OpenMar
     innerCalls.push({
       to: input.perpsAddress,
       value: '0',
-      operation: 0,
       functionName: 'setImpactNotionalBaseUsdc',
       data: encodeFunctionData({
         abi: perpsMarketConfigAbi,
@@ -118,44 +108,92 @@ export function buildOpenMarketProposal(input: OpenMarketProposalInput): OpenMar
     })
   }
 
-  const packedTransactions = encodeMultiSendTransactions(innerCalls)
-  const multiSendPayload = encodeFunctionData({
-    abi: multiSendAbi,
-    functionName: 'multiSend',
-    args: [packedTransactions],
-  })
-
   return {
     innerCalls,
-    multiSendPayload,
-    safeTx: {
-      to: MULTISEND_CALL_ONLY,
-      value: '0',
-      data: multiSendPayload,
-      operation: 1,
-      baseGas: '0',
-      gasPrice: '0',
-      gasToken: ZERO_ADDRESS,
-      refundReceiver: ZERO_ADDRESS,
-      safeTxGas: '0',
-    },
+    transaction: buildAtomicAccessManagerTx(input.accessManagerAddress, innerCalls),
   }
 }
 
-export function encodeMultiSendTransactions(calls: InnerCall[]): Hex {
-  if (calls.length === 0) {
-    return '0x'
+export function buildUpdateMarketProposal(input: UpdateMarketProposalInput): MarketProposal {
+  const innerCalls: InnerCall[] = [
+    {
+      to: input.perpsAddress,
+      value: '0',
+      functionName: 'updateMarketConfig',
+      data: encodeFunctionData({
+        abi: perpsMarketConfigAbi,
+        functionName: 'updateMarketConfig',
+        args: [input.marketId, encodePerpsMarketConfig(input.perpsConfig)],
+      }),
+    },
+  ]
+
+  if (input.lock !== undefined) {
+    innerCalls.push({
+      to: input.perpsAddress,
+      value: '0',
+      functionName: 'setMarketLock',
+      data: encodeFunctionData({
+        abi: perpsMarketConfigAbi,
+        functionName: 'setMarketLock',
+        args: [input.marketId, !input.lock],
+      }),
+    })
   }
 
-  return concatHex(
-    calls.map((call) =>
-      concatHex([
-        numberToHex(call.operation, { size: 1 }),
-        pad(call.to, { size: 20 }),
-        numberToHex(0, { size: 32 }),
-        numberToHex(size(call.data), { size: 32 }),
-        call.data,
-      ]),
-    ),
-  )
+  if (input.deferredMode !== undefined) {
+    innerCalls.push({
+      to: input.perpsAddress,
+      value: '0',
+      functionName: 'setDeferredMode',
+      data: encodeFunctionData({
+        abi: perpsMarketConfigAbi,
+        functionName: 'setDeferredMode',
+        args: [input.marketId, input.deferredMode],
+      }),
+    })
+  }
+
+  if (input.impactNotionalBaseUsdc !== undefined) {
+    innerCalls.push({
+      to: input.perpsAddress,
+      value: '0',
+      functionName: 'setImpactNotionalBaseUsdc',
+      data: encodeFunctionData({
+        abi: perpsMarketConfigAbi,
+        functionName: 'setImpactNotionalBaseUsdc',
+        args: [input.marketId, input.impactNotionalBaseUsdc],
+      }),
+    })
+  }
+
+  return {
+    innerCalls,
+    transaction: buildAtomicAccessManagerTx(input.accessManagerAddress, innerCalls),
+  }
+}
+
+export function buildAccessManagerExecuteCalldata(call: InnerCall): Hex {
+  return encodeFunctionData({
+    abi: accessManagerAbi,
+    functionName: 'execute',
+    args: [call.to, call.data],
+  })
+}
+
+export function buildAtomicAccessManagerTx(
+  accessManagerAddress: Address,
+  innerCalls: InnerCall[],
+): AtomicAccessManagerTx {
+  return {
+    to: accessManagerAddress,
+    value: '0',
+    functionName: 'AccessManager.multicall',
+    innerCalls,
+    data: encodeFunctionData({
+      abi: accessManagerAbi,
+      functionName: 'multicall',
+      args: [innerCalls.map(buildAccessManagerExecuteCalldata)],
+    }),
+  }
 }

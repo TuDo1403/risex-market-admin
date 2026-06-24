@@ -2,7 +2,7 @@
 
 import { createWalletClient, custom, getAddress, type Address, type Hex } from 'viem'
 
-import type { InnerCall } from './proposal-builder'
+import type { AtomicAccessManagerTx } from './proposal-builder'
 
 export type Eip1193Provider = {
   request(args: { method: string; params?: unknown[] | object }): Promise<unknown>
@@ -27,27 +27,15 @@ export async function connectInjectedWallet(provider: Eip1193Provider) {
   }
 }
 
-export async function sendEoaTransactions(
+export async function sendWalletTransaction(
   walletClient: EoaWalletClient,
   account: Address,
-  calls: InnerCall[],
-): Promise<Hex[]> {
-  const hashes: Hex[] = []
-
-  for (const call of calls) {
-    if (call.operation !== 0) {
-      throw new Error('EOA execution only supports direct call transactions')
-    }
-
-    hashes.push(
-      await walletClient.sendTransaction({
-        account,
-        to: call.to,
-        data: call.data,
-        value: 0n,
-      }),
-    )
-  }
-
-  return hashes
+  transaction: AtomicAccessManagerTx,
+): Promise<Hex> {
+  return walletClient.sendTransaction({
+    account,
+    to: transaction.to,
+    data: transaction.data,
+    value: BigInt(transaction.value),
+  })
 }

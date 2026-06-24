@@ -18,16 +18,16 @@ type MarketDraftEvent =
   | { type: 'SUBMIT_DRAFT' }
   | { type: 'VALIDATION_PASSED' }
   | { type: 'VALIDATION_FAILED'; error: string }
-  | { type: 'MULTISEND_BUILT' }
-  | { type: 'MULTISEND_FAILED'; error: string }
+  | { type: 'ATOMIC_TX_BUILT' }
+  | { type: 'ATOMIC_TX_FAILED'; error: string }
   | { type: 'SHADOW_PASSED' }
   | { type: 'SHADOW_FAILED'; error: string }
   | { type: 'CREATE_REVIEW_LINK'; authenticated: boolean }
   | { type: 'REVIEW_LINK_CREATED'; shareId: string }
   | { type: 'REVIEW_LINK_FAILED'; error: string }
-  | { type: 'SUBMIT_SAFE_PROPOSAL' }
-  | { type: 'SAFE_PROPOSAL_SUBMITTED' }
-  | { type: 'SAFE_PROPOSAL_FAILED'; error: string }
+  | { type: 'SUBMIT_TRANSACTION' }
+  | { type: 'TRANSACTION_SUBMITTED' }
+  | { type: 'TRANSACTION_FAILED'; error: string }
   | { type: 'EDIT' }
 
 export const marketDraftMachine = createMachine({
@@ -95,7 +95,7 @@ export const marketDraftMachine = createMachine({
     },
     validating: {
       on: {
-        VALIDATION_PASSED: 'buildingMultisend',
+        VALIDATION_PASSED: 'buildingAtomicTx',
         VALIDATION_FAILED: {
           target: 'editing',
           actions: assign(({ event }) => ({ lastError: event.error })),
@@ -103,18 +103,18 @@ export const marketDraftMachine = createMachine({
         EDIT: 'editing',
       },
     },
-    buildingMultisend: {
+    buildingAtomicTx: {
       on: {
-        MULTISEND_BUILT: [
+        ATOMIC_TX_BUILT: [
           {
             target: 'shadowExecuting',
             guard: ({ context }) => context.env === 'mainnet',
           },
           {
-            target: 'readyForSafe',
+            target: 'readyForExecution',
           },
         ],
-        MULTISEND_FAILED: {
+        ATOMIC_TX_FAILED: {
           target: 'editing',
           actions: assign(({ event }) => ({ lastError: event.error })),
         },
@@ -133,7 +133,7 @@ export const marketDraftMachine = createMachine({
     shadowFailed: {
       on: {
         EDIT: 'editing',
-        MULTISEND_BUILT: 'shadowExecuting',
+        ATOMIC_TX_BUILT: 'shadowExecuting',
       },
     },
     shadowPassed: {
@@ -154,7 +154,7 @@ export const marketDraftMachine = createMachine({
     creatingReviewLink: {
       on: {
         REVIEW_LINK_CREATED: {
-          target: 'readyForSafe',
+          target: 'readyForExecution',
           actions: assign(({ event }) => ({
             shareId: event.shareId,
             lastError: undefined,
@@ -166,17 +166,17 @@ export const marketDraftMachine = createMachine({
         },
       },
     },
-    readyForSafe: {
+    readyForExecution: {
       on: {
-        SUBMIT_SAFE_PROPOSAL: 'submittingSafeProposal',
+        SUBMIT_TRANSACTION: 'submittingTransaction',
         EDIT: 'editing',
       },
     },
-    submittingSafeProposal: {
+    submittingTransaction: {
       on: {
-        SAFE_PROPOSAL_SUBMITTED: 'submitted',
-        SAFE_PROPOSAL_FAILED: {
-          target: 'readyForSafe',
+        TRANSACTION_SUBMITTED: 'submitted',
+        TRANSACTION_FAILED: {
+          target: 'readyForExecution',
           actions: assign(({ event }) => ({ lastError: event.error })),
         },
       },

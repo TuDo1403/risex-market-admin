@@ -1,21 +1,20 @@
 import type { Address } from 'viem'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { InnerCall } from './proposal-builder'
+import type { AtomicAccessManagerTx } from './proposal-builder'
 import { executeShadowPreflight } from './shadow'
 
 const executor = '0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D' as Address
 const perps = '0x53f10fAcFC8965750494E6965F5d6dA39B41d852' as Address
+const accessManager = '0x1BEe39C01907E3018b7ec2021Cf73F70541b36cC' as Address
 
-const innerCalls: InnerCall[] = [
-  {
-    to: perps,
-    value: '0',
-    data: '0x12345678',
-    operation: 0,
-    functionName: 'openMarket',
-  },
-]
+const transaction: AtomicAccessManagerTx = {
+  to: accessManager,
+  value: '0',
+  data: '0x12345678',
+  functionName: 'AccessManager.multicall',
+  innerCalls: [{ to: perps, value: '0', data: '0xabcdef01', functionName: 'openMarket' }],
+}
 
 describe('shadow preflight executor', () => {
   it('sends planned calls from the shadow executor and returns post-state', async () => {
@@ -29,7 +28,7 @@ describe('shadow preflight executor', () => {
       client,
       executor,
       perpsAddress: perps,
-      calls: innerCalls,
+      transaction,
     })
 
     expect(result.status).toBe('passed')
@@ -38,7 +37,7 @@ describe('shadow preflight executor', () => {
     expect(result.txHashes).toEqual(['0xhash'])
     expect(client.sendTransaction).toHaveBeenCalledWith({
       account: executor,
-      to: perps,
+      to: accessManager,
       data: '0x12345678',
       value: 0n,
     })
@@ -55,7 +54,7 @@ describe('shadow preflight executor', () => {
       client,
       executor,
       perpsAddress: perps,
-      calls: innerCalls,
+      transaction,
     })
 
     expect(result.status).toBe('failed')

@@ -3,6 +3,30 @@
 Date: 2026-06-24
 Status: Approved (pending spec review)
 
+## Architecture revision (2026-06-24, supersedes the server-route design below)
+
+Decision: go client-first / near-static on Vercel. RISE testnet **and** mainnet RPCs are
+non-sensitive, so the browser talks to the chain directly.
+
+- **All chain interaction is client-side** via viem/wagmi using public RPC: market reads
+  (`readLiveMarkets` + `liveMarketToDisplayMarket`), oracle validation
+  (`readOracleValidation`), AccessManager `canCall` (`checkAccessForCalls`), and shadow
+  preflight (`executeShadowPreflight` — its executor account is impersonated, no private
+  key). DELETE the server routes `/api/markets`, `/api/oracle/validation`,
+  `/api/shadow/run`.
+- **Execution** (EOA via wagmi wallet client, Safe via SDK/JSON) is already client-side.
+- **GitHub auth is kept** as the one unavoidable Vercel function (OAuth secret) —
+  NextAuth at `/api/auth/[...nextauth]`, used for login + gating the review page.
+- **Review links are stateless**: the proposal/draft payload is compressed + base64url-
+  encoded into the share URL (`/r/<payload>`). DELETE the Postgres review store and
+  `/api/reviews[/id]` routes; the review page decodes the payload (still behind the
+  GitHub gate). RPC URLs (non-sensitive) move into `deployments` so they ship to the
+  client.
+
+The pure calldata libraries (`proposal-builder`, `proposal-assembly`, `numbers`,
+`price-ids`, `abis`) are unchanged and run in the browser. Sections below describing
+server data routes are superseded by this revision for everything except auth.
+
 ## Problem
 
 The RISEx market-admin app has a complete, tested backend (on-chain reads, GitHub

@@ -149,6 +149,23 @@ export const accessManagerAbi = [
     ],
     outputs: [{ name: '', type: 'bool' }],
   },
+  {
+    type: 'function',
+    name: 'execute',
+    stateMutability: 'payable',
+    inputs: [
+      { name: 'target', type: 'address' },
+      { name: 'data', type: 'bytes' },
+    ],
+    outputs: [{ name: '', type: 'uint32' }],
+  },
+  {
+    type: 'function',
+    name: 'multicall',
+    stateMutability: 'payable',
+    inputs: [{ name: 'data', type: 'bytes[]' }],
+    outputs: [{ name: 'results', type: 'bytes[]' }],
+  },
 ] as const
 
 export const ordersManagerAbi = [

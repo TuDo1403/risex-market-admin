@@ -4,7 +4,10 @@ import Image from 'next/image'
 import { signIn, signOut, useSession } from 'next-auth/react'
 import type React from 'react'
 import { useEffect, useMemo, useState } from "react";
-import { useAccount, useConnect, useDisconnect } from 'wagmi'
+import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi'
+import { getDeploymentForEnv } from "@/src/config/deployments";
+import { detectSafeApp, submitSafeAppTransaction, type SafeAppInfo } from "@/src/lib/safe-app";
+import { buildOpenMarketProposal, buildUpdateMarketProposal, type AtomicAccessManagerTx } from "@/src/lib/proposal-builder";
 import {
   ENVS, EnvKey, Market, AERO_TEMPLATE, QUOTE_SYMBOL,
   fmt, rawMmr, rawImpact, rawStepPrice, rawStepSize,
@@ -15,7 +18,7 @@ import { cn } from "@/src/lib/utils";
 import {
   Activity, AlertTriangle, ArrowRight, Check, ChevronDown, Circle,
   CircleDot, Copy, ExternalLink, FileJson, Github, Hash, Loader2, Lock,
-  Plug, Plus, RefreshCw, Search, Shield, Sparkles, Terminal, Unlock,
+  Plug, Plus, RefreshCw, Search, Sparkles, Terminal, Unlock,
   Wallet, X, Zap,
 } from "lucide-react";
 
@@ -130,7 +133,6 @@ function EnvSwitcher({ env, setEnv }: { env: EnvKey; setEnv: (e: EnvKey) => void
       >
         <Dot color={`env-${env}`} pulse />
         <span className="font-mono text-[12px] tracking-wide">{cfg.label}</span>
-        <span className="hidden sm:inline text-[10px] font-mono text-muted-foreground">{cfg.mode === "safe" ? "SAFE" : "EOA"}</span>
         <ChevronDown className="h-3 w-3 text-muted-foreground" />
       </button>
       {open && (
@@ -147,12 +149,12 @@ function EnvSwitcher({ env, setEnv }: { env: EnvKey; setEnv: (e: EnvKey) => void
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-[12px]">{e.label}</span>
-                      <span className={cn("font-mono text-[9px] px-1 rounded-sm border", e.mode === "safe" ? "border-destructive/40 text-destructive bg-destructive/10" : "border-primary/40 text-primary bg-primary/10")}>
-                        {e.mode === "safe" ? "SAFE PROPOSAL" : "EOA TX"}
+                      <span className="font-mono text-[9px] px-1 rounded-sm border border-primary/40 text-primary bg-primary/10">
+                        AM.MULTICALL
                       </span>
                     </div>
                     <div className="text-[10px] font-mono text-muted-foreground truncate">{e.chain}</div>
-                    <div className="text-[10px] font-mono text-muted-foreground/70 truncate">AM {e.access}{e.safe ? ` · ${e.safe}` : ""}</div>
+                    <div className="text-[10px] font-mono text-muted-foreground/70 truncate">AM {shortAddress(e.access)}</div>
                   </div>
                   {env === e.key && <Check className="h-3 w-3 text-primary mt-1" />}
                 </button>
@@ -187,9 +189,9 @@ function Header({ env, setEnv }: {
 
         <div className="hidden lg:flex items-center gap-2 ml-2">
           <Chip tone="muted"><Hash className="h-3 w-3" /> {cfg.chain.split("·")[1]?.trim()}</Chip>
-          <Chip tone={cfg.mode === "safe" ? "destructive" : "primary"}>
-            {cfg.mode === "safe" ? <Shield className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
-            {cfg.mode === "safe" ? "Safe MultiSend" : "EOA Execute"}
+          <Chip tone="primary">
+            <Zap className="h-3 w-3" />
+            AccessManager multicall
           </Chip>
         </div>
 
@@ -544,7 +546,7 @@ function shortHex(value: string | null) {
   return `${value.slice(0, 10)}…${value.slice(-6)}`;
 }
 
-function ValidationTape({ env, github, wallet, state, mode, marketCount, marketId }: { env: EnvKey; github: string | null; wallet: string | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null }) {
+function ValidationTape({ env, github, wallet, safeInfo, state, mode, marketCount, marketId }: { env: EnvKey; github: string | null; wallet: string | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null }) {
   const [oracleValidation, setOracleValidation] = useState<OracleValidationState>({ status: "idle" });
   const expectedIndexPriceId = state.symbol ? deriveIndexPriceId(state.symbol) : "";
   const expectedMarkPriceId = state.symbol ? deriveMarkPriceId(state.symbol) : "";
@@ -647,10 +649,15 @@ function ValidationTape({ env, github, wallet, state, mode, marketCount, marketI
     { k: "nextId", label: mode === "open" ? "Next market id" : "Existing market id", s: "ok", detail: mode === "open" ? `${marketCount}` : "matched" },
     ...oracleItems,
     ...(env === "mainnet"
-      ? [{ k: "shadow", label: "Shadow run", s: "warn" as CheckState, detail: "required before Safe" }]
+      ? [{ k: "shadow", label: "Shadow run", s: "warn" as CheckState, detail: "required before transaction submission" }]
       : []),
     { k: "gh", label: "GitHub session", s: github ? "ok" : "fail", detail: github ?? "sign in to create review link" },
-    { k: "wallet", label: "Signer", s: env === "mainnet" ? (github ? "ok" : "warn") : (wallet ? "ok" : "fail"), detail: env === "mainnet" ? "Safe proposer (GitHub)" : (wallet ?? "connect EOA") },
+    {
+      k: "wallet",
+      label: "Signer",
+      s: safeInfo || wallet ? "ok" : "fail",
+      detail: safeInfo ? `Safe ${shortAddress(safeInfo.safeAddress)}` : (wallet ?? "connect wallet"),
+    },
   ];
   return (
     <section className="panel">
@@ -693,7 +700,7 @@ function ShadowPreflight({ mode, marketCount }: { mode: "open" | "update"; marke
       </div>
       {!done && !running && (
         <div className="p-3 text-[11px] font-mono text-muted-foreground">
-          Required for mainnet Safe creation. Forks current state, replays the proposal, and reads post-state.
+          Required for mainnet submission. Forks current state, replays the atomic AccessManager transaction, and reads post-state.
         </div>
       )}
       {(running || done) && (
@@ -721,9 +728,35 @@ function ShadowPreflight({ mode, marketCount }: { mode: "open" | "update"; marke
 
 /* ----------------------------- Proposal Panel -------------------------- */
 
-function ProposalPanel({ env, mode, state, base, github, wallet }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; github: string | null; wallet: string | null }) {
-  const isSafe = env === "mainnet";
+function parseRawBigInt(raw: string) {
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`invalid raw integer: ${raw}`);
+  }
+  return BigInt(raw);
+}
+
+function buildPerpsConfigForPanel(env: EnvKey, state: EditorState, base: Market | null) {
+  const deployment = getDeploymentForEnv(env);
+  return {
+    name: marketTickerName(state.symbol),
+    quote: deployment.addresses.usdc,
+    unlocked: state.status === "unlocked",
+    maxLeverage: BigInt(state.maxLeverage),
+    maintenanceMarginFactor: parseRawBigInt(rawMmr(state.mmrPct)),
+    minOrderStep: BigInt(state.minOrderStep),
+    maxOrderStep: BigInt(state.maxOrderStep),
+    oiLimitSteps: BigInt(state.oiLimitSteps),
+    stepSize: parseRawBigInt(base?.stepSizeRaw ?? rawStepSize(state.stepSize)),
+    stepPrice: parseRawBigInt(base?.stepPriceRaw ?? rawStepPrice(state.stepPrice)),
+    matchPriceBandBps: BigInt(state.priceBandBps),
+  };
+}
+
+function ProposalPanel({ env, mode, state, base, github, wallet, safeInfo, marketCount }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; github: string | null; wallet: string | null; safeInfo: SafeAppInfo | null; marketCount: number }) {
   const tickerName = marketTickerName(state.symbol);
+  const deployment = getDeploymentForEnv(env);
+  const { sendTransaction, isPending: walletPending } = useSendTransaction();
+  const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" | "submitted" | "error"; message?: string }>({ status: "idle" });
   const calls: { fn: string; args: string[]; required: boolean }[] = mode === "open" ? [
     { fn: "openMarket", required: true, args: [
       `name="${tickerName}"`,
@@ -751,23 +784,78 @@ function ProposalPanel({ env, mode, state, base, github, wallet }: { env: EnvKey
     ...(base && base.impactBaseUsdc !== state.impactBaseUsdc ? [{ fn: "setImpactNotionalBaseUsdc", required: false, args: [`marketId=${base.id}`, `base=${rawImpact(state.impactBaseUsdc)}`] }] : []),
   ];
 
+  const proposal = useMemo(() => {
+    try {
+      const perpsConfig = buildPerpsConfigForPanel(env, state, base);
+      if (mode === "update" && !base) {
+        return { transaction: null, error: "select a market to update" };
+      }
+
+      const built = mode === "open"
+        ? buildOpenMarketProposal({
+            accessManagerAddress: deployment.addresses.accessManager,
+            perpsAddress: deployment.addresses.perps,
+            nextMarketId: marketCount,
+            perpsConfig,
+            bookConfig: {
+              stepSize: perpsConfig.stepSize,
+              stepPrice: perpsConfig.stepPrice,
+            },
+            markPriceId: deriveMarkPriceId(state.symbol),
+            indexPriceId: deriveIndexPriceId(state.symbol),
+            deferredMode: state.deferredSettlement,
+            impactNotionalBaseUsdc: parseRawBigInt(rawImpact(state.impactBaseUsdc)),
+          })
+        : buildUpdateMarketProposal({
+            accessManagerAddress: deployment.addresses.accessManager,
+            perpsAddress: deployment.addresses.perps,
+            marketId: base!.id,
+            perpsConfig,
+            lock: base!.status !== state.status ? state.status === "locked" : undefined,
+            deferredMode: base!.deferredSettlement !== state.deferredSettlement ? state.deferredSettlement : undefined,
+            impactNotionalBaseUsdc: base!.impactBaseUsdc !== state.impactBaseUsdc ? parseRawBigInt(rawImpact(state.impactBaseUsdc)) : undefined,
+          });
+
+      return { transaction: built.transaction, error: null };
+    } catch (error) {
+      return { transaction: null, error: error instanceof Error ? error.message : "invalid proposal values" };
+    }
+  }, [base, deployment.addresses.accessManager, deployment.addresses.perps, env, marketCount, mode, state]);
+
   const json = JSON.stringify({
     version: "1.0",
-    chainId: env === "mainnet" ? 11155930 : 11155931,
+    chainId: deployment.chainId,
     createdAt: new Date().toISOString(),
     meta: { name: `${mode === "open" ? "Open" : "Update"} ${tickerName}`, env },
-    transactions: calls.map(c => ({ to: ENVS.find(e => e.key === env)!.access, value: "0", data: "0x", contractMethod: c.fn })),
+    transaction: proposal.transaction
+      ? { to: proposal.transaction.to, value: proposal.transaction.value, data: proposal.transaction.data, contractMethod: proposal.transaction.functionName }
+      : null,
+    innerCalls: calls.map(c => ({ to: deployment.addresses.perps, value: "0", contractMethod: c.fn })),
   }, null, 2);
 
-  const canSafe = isSafe && !!github;
-  const canEoa = !isSafe && !!wallet;
+  const canSubmit = !!proposal.transaction && (!!safeInfo || !!wallet) && submitState.status !== "submitting" && !walletPending;
+  const submitLabel = safeInfo ? "submit via Safe App" : "send wallet tx";
+
+  async function submitAtomicTransaction(transaction: AtomicAccessManagerTx) {
+    setSubmitState({ status: "submitting" });
+    try {
+      if (safeInfo) {
+        await submitSafeAppTransaction(transaction);
+      } else {
+        sendTransaction({ to: transaction.to, data: transaction.data, value: 0n });
+      }
+      setSubmitState({ status: "submitted", message: safeInfo ? "submitted to Safe App" : "wallet transaction prompted" });
+    } catch (error) {
+      setSubmitState({ status: "error", message: error instanceof Error ? error.message : "transaction submission failed" });
+    }
+  }
 
   return (
     <section className="panel">
       <div className="panel-header">
         <div className="flex items-center gap-2">
           <span className="panel-title">Proposal · ordered calls</span>
-          <Chip tone={isSafe ? "destructive" : "primary"}>{isSafe ? <><Shield className="h-3 w-3" /> Safe MultiSend</> : <><Zap className="h-3 w-3" /> EOA tx batch</>}</Chip>
+          <Chip tone="primary"><Zap className="h-3 w-3" /> AccessManager.multicall</Chip>
         </div>
         <span className="text-[10px] font-mono text-muted-foreground">{calls.length} call{calls.length === 1 ? "" : "s"}</span>
       </div>
@@ -794,39 +882,31 @@ function ProposalPanel({ env, mode, state, base, github, wallet }: { env: EnvKey
 
       <div className="border-t border-border">
         <div className="px-3 py-1.5 flex items-center justify-between bg-surface-2">
-          <span className="panel-title">{isSafe ? "Safe transaction JSON" : "EOA execution plan"}</span>
+          <span className="panel-title">Atomic transaction JSON</span>
           <Btn size="sm" variant="ghost"><Copy className="h-3 w-3" /> copy</Btn>
         </div>
-        {isSafe ? (
-          <pre className="max-h-56 overflow-auto p-3 text-[10px] font-mono text-muted-foreground bg-background/60">{json}</pre>
-        ) : (
-          <div className="p-3 space-y-1">
-            {calls.map((c, i) => (
-              <div key={i} className="flex items-center justify-between border border-border rounded-sm bg-surface-2 px-2 py-1.5">
-                <div className="font-mono text-[11px]"><span className="text-muted-foreground">tx{i+1}</span> {c.fn} <span className="text-muted-foreground">→ {ENVS.find(e => e.key === env)!.access}</span></div>
-              </div>
-            ))}
-          </div>
-        )}
+        <pre className="max-h-56 overflow-auto p-3 text-[10px] font-mono text-muted-foreground bg-background/60">{json}</pre>
       </div>
 
       <div className="px-3 py-2 border-t border-border flex flex-wrap items-center gap-2 justify-between">
         <div className="flex items-center gap-2">
-          {isSafe ? (
-            !github ? <Chip tone="warning"><AlertTriangle className="h-3 w-3" /> sign in with GitHub to gate</Chip>
-                   : <Chip tone="primary"><Check className="h-3 w-3" /> review link ready</Chip>
-          ) : (
-            !wallet ? <Chip tone="warning"><AlertTriangle className="h-3 w-3" /> connect wallet to execute</Chip>
-                    : <Chip tone="primary"><Check className="h-3 w-3" /> wallet ready</Chip>
-          )}
+          {proposal.error ? <Chip tone="destructive"><X className="h-3 w-3" /> {proposal.error}</Chip>
+            : safeInfo ? <Chip tone="primary"><Check className="h-3 w-3" /> Safe App detected</Chip>
+            : wallet ? <Chip tone="primary"><Check className="h-3 w-3" /> wallet ready</Chip>
+            : <Chip tone="warning"><AlertTriangle className="h-3 w-3" /> connect wallet or open in Safe</Chip>}
+          {submitState.status === "submitted" && <Chip tone="primary"><Check className="h-3 w-3" /> {submitState.message}</Chip>}
+          {submitState.status === "error" && <Chip tone="destructive"><X className="h-3 w-3" /> {submitState.message}</Chip>}
         </div>
         <div className="flex items-center gap-2">
           <Btn variant="outline" size="sm" disabled={!github}><ExternalLink className="h-3 w-3" /> shareable review link</Btn>
-          {isSafe ? (
-            <Btn variant="primary" disabled={!canSafe}><Shield className="h-3 w-3" /> create Safe proposal</Btn>
-          ) : (
-            <Btn variant="primary" disabled={!canEoa}><Zap className="h-3 w-3" /> execute {calls.length} tx</Btn>
-          )}
+          <Btn
+            variant="primary"
+            disabled={!canSubmit}
+            onClick={() => proposal.transaction && submitAtomicTransaction(proposal.transaction)}
+          >
+            {submitState.status === "submitting" || walletPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+            {submitLabel}
+          </Btn>
         </div>
       </div>
     </section>
@@ -861,6 +941,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
   const { address, isConnected } = useAccount();
   const github = session?.user?.name ?? session?.user?.email ?? null;
   const wallet = isConnected && address ? shortAddress(address) : null;
+  const [safeInfo, setSafeInfo] = useState<SafeAppInfo | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [marketsState, setMarketsState] = useState<MarketsState>({
     loadState: "loading",
@@ -869,6 +950,16 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
 
   const markets = marketsState.markets;
   const base = useMemo(() => markets.find(m => m.id === selectedId) ?? null, [markets, selectedId]);
+
+  useEffect(() => {
+    let mounted = true;
+    detectSafeApp().then((info) => {
+      if (mounted) setSafeInfo(info);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -921,8 +1012,8 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
       <div className="border-b border-border bg-surface/60">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 sm:px-4 py-1.5 text-[10px] font-mono text-muted-foreground">
           <span className="flex items-center gap-1.5"><EnvBadge env={env} /></span>
-          <span>access {ENVS.find(e => e.key === env)!.access}</span>
-          {ENVS.find(e => e.key === env)!.safe && <span>safe {ENVS.find(e => e.key === env)!.safe}</span>}
+          <span>access {shortAddress(ENVS.find(e => e.key === env)!.access)}</span>
+          {safeInfo && <span>safe app {shortAddress(safeInfo.safeAddress)}</span>}
           <span className="ml-auto">
             {marketsState.refreshedAt ? `last refresh ${marketsState.refreshedAt.toLocaleTimeString()}` : "last refresh pending"}
           </span>
@@ -974,9 +1065,9 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
                 onLoadAero={() => setOpenState({ ...emptyEditor(), ...AERO_TEMPLATE })} />
             </div>
             <div className="lg:col-span-4 space-y-3">
-              <ValidationTape env={env} github={github} wallet={wallet} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} />
+              <ValidationTape env={env} github={github} wallet={wallet} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} />
               {env === "mainnet" && <ShadowPreflight mode={editorMode} marketCount={markets.length} />}
-              <ProposalPanel env={env} mode={editorMode} state={editorState} base={tab === "update" ? base : null} github={github} wallet={wallet} />
+              <ProposalPanel env={env} mode={editorMode} state={editorState} base={tab === "update" ? base : null} github={github} wallet={wallet} safeInfo={safeInfo} marketCount={markets.length} />
             </div>
           </>
         )}

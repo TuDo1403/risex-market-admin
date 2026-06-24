@@ -4,17 +4,17 @@ Date: 2026-06-24
 
 ## Goal
 
-Build a Vercel-compatible Next.js App Router console for accelerating RISEx perps market listings while keeping proposal review, numeric conversion, shadow execution, and Safe submission auditable.
+Build a Vercel-compatible Next.js App Router console for accelerating RISEx perps market listings while keeping proposal review, numeric conversion, shadow execution, and transaction submission auditable.
 
-The target users are protocol developers and business operators. The UI must optimize for exactness: every friendly input has a raw value, every generated transaction is decoded, and Safe proposal creation is blocked until the state machine reaches `readyForSafe`.
+The target users are protocol developers and business operators. The UI must optimize for exactness: every friendly input has a raw value, every generated transaction is decoded, and submission is blocked until the state machine reaches `readyForExecution`.
 
 ## Product Shape
 
 - Current market table: loads live perps markets by calling `getTotalMarkets()` and then `getMarketConfig(id)` for each market id. It must not guess ids from local config order.
 - Market draft wizard: supports V1 perps operations for opening, locking/unlocking, updating config, deferred mode, and impact-notional base updates.
-- Proposal review: creates shareable, unguessable review links for GitHub-authenticated users. Review pages are read-only by default and show exact draft inputs, raw values, decoded calls, shadow result, validation result, and Safe tx JSON.
+- Proposal review: creates shareable, unguessable review links for GitHub-authenticated users. Review pages are read-only by default and show exact draft inputs, raw values, decoded calls, shadow result, validation result, and atomic transaction JSON.
 - Shadow preflight: uses `http://shadow-rpc.riselabs.xyz` and executor `0x7CD9460423f9f1751B1F7F1581Aa74d7e4b0984D`. If the RPC is unreachable or execution fails, proposal submission stays blocked.
-- Safe handoff: outputs Safe-compatible MultiSend JSON and supports Safe Apps SDK handoff when opened inside Safe.
+- Submission: always builds one `AccessManager.multicall` transaction. If opened inside Safe, submit it through Safe Apps SDK; otherwise prompt the connected wallet to send the same transaction.
 
 ## Visual System
 
@@ -47,13 +47,13 @@ All addresses are imported into one config module from `risex-contracts/script/d
 - `loadingLiveMarkets`
 - `editing`
 - `validating`
-- `buildingMultisend`
+- `buildingAtomicTx`
 - `shadowExecuting`
 - `shadowFailed`
 - `shadowPassed`
 - `creatingReviewLink`
-- `readyForSafe`
-- `submittingSafeProposal`
+- `readyForExecution`
+- `submittingTransaction`
 - `submitted`
 
 Guards:
@@ -67,7 +67,7 @@ Guards:
 - shadow run passed
 - authenticated GitHub session exists before saving/review links
 
-Invariant: no UI proposal button is enabled unless the machine is in `readyForSafe`.
+Invariant: no UI submission button is enabled unless the machine is in `readyForExecution`.
 
 ## Numeric Model
 
@@ -92,8 +92,8 @@ V1 open listing flow produces ordered calls:
 The builder emits:
 
 - inner tx list
-- Safe MultiSend calldata
-- Safe tx JSON with `operation: 1`
+- one `AccessManager.multicall(bytes[])` transaction
+- each multicall item is `AccessManager.execute(target, data)` for an inner perps call
 - decoded call tape
 
 ## Backend
@@ -122,9 +122,8 @@ Implementation order is red-green-refactor:
 2. Numeric conversion tests.
 3. State machine transition and guard tests.
 4. RPC reader tests with mocked viem client.
-5. MultiSend builder tests.
+5. Atomic AccessManager transaction builder tests.
 6. Shadow executor tests.
 7. Auth-protected review API tests.
 8. Component tests for market table, wizard, raw/friendly toggles, and proposal diff tape.
-9. Playwright e2e for mocked GitHub session, draft creation, shadow pass, and Safe proposal button enabled.
-
+9. Playwright e2e for mocked GitHub session, draft creation, shadow pass, and atomic submission button enabled.

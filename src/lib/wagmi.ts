@@ -2,7 +2,7 @@ import { defineChain } from 'viem'
 import { createConfig, http } from 'wagmi'
 import { injected } from 'wagmi/connectors'
 
-import { TESTNET_RPC_URL } from '@/src/config/deployments'
+import { getDeploymentForEnv, TESTNET_RPC_URL } from '@/src/config/deployments'
 
 // RISE testnet/staging/shadow all run chainId 11155931; mainnet is a placeholder on the
 // same id until a real chain/RPC is provisioned. A single registered chain is enough for
@@ -12,6 +12,11 @@ export const riseTestnet = defineChain({
   name: 'RISE Testnet',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   rpcUrls: { default: { http: [TESTNET_RPC_URL] } },
+  contracts: {
+    multicall3: {
+      address: getDeploymentForEnv('testnet').multicall3Address,
+    },
+  },
 })
 
 export const wagmiConfig = createConfig({

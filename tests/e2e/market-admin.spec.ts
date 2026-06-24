@@ -14,44 +14,38 @@ async function selectEnv(page: import('@playwright/test').Page, envName: string)
   await page.getByRole('button', { name: new RegExp(`^${envName}`, 'i') }).click()
 }
 
-test('operator can switch envs, update a market, and see tx mode rules', async ({ page }) => {
-  await page.addInitScript((fixtures) => {
-    const originalFetch = window.fetch.bind(window)
-    window.fetch = async (input, init) => {
-      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
-      if (url.includes('/api/markets')) {
-        const parsed = new URL(url, window.location.origin)
-        const env = parsed.searchParams.get('env') ?? 'staging'
-        return new Response(JSON.stringify({
-          env,
-          markets: fixtures[env as keyof typeof fixtures] ?? [],
-        }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
-      }
-      if (url.includes('/api/oracle/validation')) {
-        return new Response(JSON.stringify({
-          validation: {
-            expectedIndexPriceId: '0x7321ce442e8814b638e0cd241a8838e7d8222a43cbaaca78adcc2337bfa3185d',
-            expectedMarkPriceId: '0x98848cd117152974f79fb357720f794415ab653bc2c2dd4548395dc2c4123440',
-            actualIndexPriceId: '0x7321ce442e8814b638e0cd241a8838e7d8222a43cbaaca78adcc2337bfa3185d',
-            actualMarkPriceId: '0x98848cd117152974f79fb357720f794415ab653bc2c2dd4548395dc2c4123440',
-            indexPrice: '100000000',
-            markPrice: '100100000',
-            indexPriceIdMatches: true,
-            markPriceIdMatches: true,
-            indexPriceLive: true,
-            markPriceLive: true,
-          },
-        }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
-      }
-      return originalFetch(input, init)
-    }
-  }, marketsByEnv)
+test('operator can switch envs, update a market, and see atomic tx rules', async ({ page }) => {
+  await page.route('**/api/markets?**', async (route) => {
+    const env = new URL(route.request().url()).searchParams.get('env') ?? 'staging'
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        env,
+        markets: marketsByEnv[env as keyof typeof marketsByEnv] ?? [],
+      }),
+    })
+  })
+  await page.route('**/api/oracle/validation?**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        validation: {
+          expectedIndexPriceId: '0x7321ce442e8814b638e0cd241a8838e7d8222a43cbaaca78adcc2337bfa3185d',
+          expectedMarkPriceId: '0x98848cd117152974f79fb357720f794415ab653bc2c2dd4548395dc2c4123440',
+          actualIndexPriceId: '0x7321ce442e8814b638e0cd241a8838e7d8222a43cbaaca78adcc2337bfa3185d',
+          actualMarkPriceId: '0x98848cd117152974f79fb357720f794415ab653bc2c2dd4548395dc2c4123440',
+          indexPrice: '100000000',
+          markPrice: '100100000',
+          indexPriceIdMatches: true,
+          markPriceIdMatches: true,
+          indexPriceLive: true,
+          markPriceLive: true,
+        },
+      }),
+    })
+  })
   const stagingMarket = marketsByEnv.staging[0]!
   const testnetMarket = marketsByEnv.testnet[0]!
   const stagingTicker = `${stagingMarket.symbol}/USDC`
@@ -88,13 +82,14 @@ test('operator can switch envs, update a market, and see tx mode rules', async (
   await expect(page.getByText(/raw:/).first()).toBeVisible()
 
   await selectEnv(page, 'mainnet')
-  await expect(page.getByText(/Safe MultiSend/).last()).toBeVisible()
-  await expect(page.getByRole('button', { name: /create Safe proposal/i })).toBeDisabled()
+  await expect(page.getByText(/AccessManager\.multicall/).last()).toBeVisible()
+  await expect(page.getByText(/Atomic transaction JSON/i)).toBeVisible()
+  await expect(page.getByRole('button', { name: /send wallet tx/i })).toBeDisabled()
   await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
 
   await selectEnv(page, 'staging')
-  await expect(page.getByText(/EOA tx batch/i)).toBeVisible()
-  await expect(page.getByRole('button', { name: /execute 3 tx/i })).toBeDisabled()
+  await expect(page.getByText(/Atomic transaction JSON/i)).toBeVisible()
+  await expect(page.getByRole('button', { name: /send wallet tx/i })).toBeDisabled()
   await expect(page.getByRole('button', { name: /connect/i })).toBeVisible()
 })
 

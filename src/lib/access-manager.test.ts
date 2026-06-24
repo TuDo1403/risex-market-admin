@@ -12,8 +12,8 @@ describe('AccessManager selector checks', () => {
   it('checks every planned selector against the caller and target', async () => {
     const readContract = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     const calls: InnerCall[] = [
-      { to: perps, value: '0', data: '0x264317e8' as const, operation: 0, functionName: 'openMarket' },
-      { to: perps, value: '0', data: '0xd5a532d5' as const, operation: 0, functionName: 'setDeferredMode' },
+      { to: perps, value: '0', data: '0x264317e8' as const, functionName: 'openMarket' },
+      { to: perps, value: '0', data: '0xd5a532d5' as const, functionName: 'setDeferredMode' },
     ]
 
     const result = await checkAccessForCalls({ readContract }, accessManager, caller, calls)

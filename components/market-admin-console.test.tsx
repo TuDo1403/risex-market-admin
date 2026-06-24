@@ -34,6 +34,10 @@ vi.mock('wagmi', () => ({
       hookState.address = null
     }),
   }),
+  useSendTransaction: () => ({
+    sendTransaction: vi.fn(),
+    isPending: false,
+  }),
 }))
 
 function textIncludes(value: string) {
@@ -138,28 +142,28 @@ describe('MarketAdminConsole Lovable source port', () => {
     expect(screen.getByText('RAW')).toBeInTheDocument()
   })
 
-  it('uses Safe proposal mode on mainnet and EOA execution elsewhere', async () => {
+  it('uses one atomic execution path across environments', async () => {
     const user = userEvent.setup()
     const view = render(<MarketAdminConsole initialEnv="mainnet" />)
 
     await user.click(screen.getByRole('button', { name: /open market/i }))
-    expect(screen.getAllByText(/Safe MultiSend/i).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /create Safe proposal/i })).toBeDisabled()
+    expect(screen.getAllByText(/AccessManager\.multicall/i).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeDisabled()
     hookState.session = { user: { name: '@rise-ops' } }
     view.rerender(<MarketAdminConsole initialEnv="mainnet" />)
-    expect(screen.getByRole('button', { name: /create Safe proposal/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeDisabled()
 
     await user.click(within(screen.getByRole('group', { name: /environment/i })).getByRole('button', { name: /environment mainnet/i }))
     await user.click(screen.getByRole('button', { name: /staging/i }))
-    expect(screen.getByText(/EOA tx batch/i)).toBeInTheDocument()
+    expect(screen.getByText(/Atomic transaction JSON/i)).toBeInTheDocument()
     expect(screen.queryByText(/Shadow preflight/i)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /execute 3 tx/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeDisabled()
     hookState.address = '0x9953E4D18400Fc15125c27c3d0C83BE38D561d36'
     view.rerender(<MarketAdminConsole initialEnv="mainnet" />)
-    expect(screen.getByRole('button', { name: /execute 3 tx/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /send wallet tx/i })).toBeEnabled()
   })
 
-  it('shows shadow preflight only for mainnet safe proposals', async () => {
+  it('shows shadow preflight only for mainnet submissions', async () => {
     const user = userEvent.setup()
     render(<MarketAdminConsole initialEnv="staging" />)
 

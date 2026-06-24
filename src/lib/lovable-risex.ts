@@ -1,16 +1,15 @@
 // RISEx domain types, demo fixtures, and raw/friendly converters.
 
 import { mmrPercentToMaintenanceMarginFactor } from "./numbers";
+import { getDeploymentForEnv } from "@/src/config/deployments";
 
 export type EnvKey = "testnet" | "staging" | "mainnet" | "shadow";
 
-export type ExecMode = "eoa" | "safe";
-
-export const ENVS: { key: EnvKey; label: string; mode: ExecMode; chain: string; access: string; safe?: string }[] = [
-  { key: "testnet", label: "Testnet",  mode: "eoa",  chain: "RISE Testnet · 11155931", access: "0xAcc3...7A21" },
-  { key: "staging", label: "Staging",  mode: "eoa",  chain: "RISE Staging · 11155932", access: "0xAcc4...8B12" },
-  { key: "shadow",  label: "Shadow",   mode: "eoa",  chain: "Anvil fork · pre-mainnet", access: "0xAcc5...9D03" },
-  { key: "mainnet", label: "Mainnet",  mode: "safe", chain: "RISE Mainnet · 11155930",  access: "0xAcc1...F4D8", safe: "0xSAFE...9C2A" },
+export const ENVS: { key: EnvKey; label: string; chain: string; access: string }[] = [
+  { key: "testnet", label: "Testnet", chain: "RISE Testnet · 11155931", access: getDeploymentForEnv("testnet").addresses.accessManager },
+  { key: "staging", label: "Staging", chain: "RISE Staging · 11155931", access: getDeploymentForEnv("staging").addresses.accessManager },
+  { key: "shadow",  label: "Shadow",  chain: "RISE Shadow · 11155931", access: getDeploymentForEnv("shadow").addresses.accessManager },
+  { key: "mainnet", label: "Mainnet", chain: "RISE Mainnet · 11155931", access: getDeploymentForEnv("mainnet").addresses.accessManager },
 ];
 
 export const PROTOCOL_PRICE_PRECISION = 8;
