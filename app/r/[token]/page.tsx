@@ -1,11 +1,11 @@
-import { notFound } from 'next/navigation'
 import Image from 'next/image'
+import { notFound } from 'next/navigation'
 
+import { decodeReview, type ReviewPayload } from '@/src/lib/review-link'
 import { requireMarketAdminSession } from '@/src/lib/server/authz'
-import { getReviewStore } from '@/src/lib/server/review-store'
 
 type ReviewPageProps = {
-  params: Promise<{ shareId: string }>
+  params: Promise<{ token: string }>
 }
 
 export default async function ReviewPage({ params }: ReviewPageProps) {
@@ -22,9 +22,11 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
     )
   }
 
-  const { shareId } = await params
-  const review = await getReviewStore().getByShareId(shareId)
-  if (!review || review.status === 'revoked') {
+  const { token } = await params
+  let review: ReviewPayload
+  try {
+    review = decodeReview(token)
+  } catch {
     notFound()
   }
 
@@ -34,11 +36,11 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
         <div className="brand-lockup">
           <Image src="/icons/rise.svg" alt="" width={70} height={25} className="brand-icon" priority />
           <div>
-            <p className="eyebrow">review/{review.shareId}</p>
+            <p className="eyebrow">review</p>
             <h1>{review.env} market config review</h1>
           </div>
         </div>
-        <span className="status-pill success">{review.status}</span>
+        <span className="status-pill success">{review.createdAt}</span>
       </section>
       <section className="panel">
         <p className="panel-label">draft</p>
@@ -46,12 +48,14 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
       </section>
       <section className="panel">
         <p className="panel-label">generated tx</p>
-        <pre>{JSON.stringify(review.generatedTx, null, 2)}</pre>
+        <pre>{JSON.stringify(review.proposal, null, 2)}</pre>
       </section>
-      <section className="panel">
-        <p className="panel-label">shadow result</p>
-        <pre>{JSON.stringify(review.shadow, null, 2)}</pre>
-      </section>
+      {review.validation !== undefined && (
+        <section className="panel">
+          <p className="panel-label">validation</p>
+          <pre>{JSON.stringify(review.validation, null, 2)}</pre>
+        </section>
+      )}
     </main>
   )
 }
