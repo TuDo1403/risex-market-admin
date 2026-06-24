@@ -3,18 +3,22 @@
 import Image from 'next/image'
 import type React from 'react'
 import { useEffect, useMemo, useState } from "react";
+import { getAddress } from 'viem';
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi'
-import { getDeploymentForEnv } from "@/src/config/deployments";
+import { getBrowserRpcUrl, getDeploymentForEnv } from "@/src/config/deployments";
 import { getPublicClient } from "@/src/lib/client/public-client";
 import { liveMarketToDisplayMarket } from "@/src/lib/market-view";
 import { readLiveMarkets } from "@/src/lib/rpc/market-reader";
+import type { MarkOracleConfig } from "@/src/lib/rpc/market-reader";
 import { readOpenOracleValidation, readOracleValidation } from "@/src/lib/rpc/oracle-validation";
 import { encodeReview } from "@/src/lib/review-link";
 import { detectSafeApp, submitSafeAppTransaction, type SafeAppInfo } from "@/src/lib/safe-app";
+import { createEip1193TransactionSigner, createShadowWalletClient, executeShadowPreflight, type Eip1193Provider, type ShadowPreflightResult } from "@/src/lib/shadow";
 import { buildOpenMarketProposal, buildUpdateMarketProposal, type AtomicAccessManagerTx } from "@/src/lib/proposal-builder";
 import {
-  ENVS, EnvKey, Market, AERO_TEMPLATE, QUOTE_SYMBOL,
+  ENVS, EnvKey, Market, AERO_TEMPLATE, DEFAULT_MARK_ORACLE_CONFIG, QUOTE_SYMBOL,
   fmt, rawMmr, rawImpact, rawStepPrice, rawStepSize,
+  priceBandBpsToPercent, rawPriceBandBps,
   marketTickerName,
 } from "@/src/lib/lovable-risex";
 import { deriveIndexPriceId, deriveMarkPriceId } from "@/src/lib/price-ids";
@@ -153,9 +157,6 @@ function EnvSwitcher({ env, setEnv }: { env: EnvKey; setEnv: (e: EnvKey) => void
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-[12px]">{e.label}</span>
-                      <span className="font-mono text-[9px] px-1 rounded-sm border border-primary/40 text-primary bg-primary/10">
-                        AM.MULTICALL
-                      </span>
                     </div>
                     <div className="text-[10px] font-mono text-muted-foreground truncate">{e.chain}</div>
                     <div className="text-[10px] font-mono text-muted-foreground/70 truncate">AM {shortAddress(e.access)}</div>
@@ -266,7 +267,7 @@ function MarketsTable({
         <table className="w-full text-left">
           <thead className="bg-background/60 border-b border-border">
             <tr className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">
-              {["id","market","lock","defer settle","maxLev","mmr %","mmrRaw","stepSize","stepPrice","minStep","maxStep","oiLimit","impact $","band bps",""].map(h => (
+              {["id","market","lock","defer settle","maxLev","mmr %","mmrRaw","stepSize","stepPrice","minStep","maxStep","oiLimit","impact $","band %","mark τ","mark min","mark max",""].map(h => (
                 <th key={h} className="px-2 py-1.5 font-normal whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -274,18 +275,18 @@ function MarketsTable({
           <tbody>
             {state === "loading" && Array.from({ length: 3 }).map((_, i) => (
               <tr key={i} className="border-b border-border/60">
-                {Array.from({ length: 15 }).map((__, j) => (
+                {Array.from({ length: 18 }).map((__, j) => (
                   <td key={j} className="px-2 py-2"><div className="h-3 bg-surface-3 animate-pulse rounded-sm" /></td>
                 ))}
               </tr>
             ))}
             {state === "empty" && (
-              <tr><td colSpan={15} className="text-center py-8 text-muted-foreground font-mono text-[12px]">
+              <tr><td colSpan={18} className="text-center py-8 text-muted-foreground font-mono text-[12px]">
                 No markets on {env}.
               </td></tr>
             )}
             {state === "error" && (
-              <tr><td colSpan={15} className="text-center py-8 text-destructive font-mono text-[12px]">
+              <tr><td colSpan={18} className="text-center py-8 text-destructive font-mono text-[12px]">
                 {error ?? "Failed to read live markets."}
               </td></tr>
             )}
@@ -317,7 +318,10 @@ function MarketsTable({
                 <td className="px-2 py-1.5 data-cell">{fmt(m.maxOrderStep)}</td>
                 <td className="px-2 py-1.5 data-cell">{fmt(m.oiLimitSteps)}</td>
                 <td className="px-2 py-1.5 data-cell">${m.impactBaseUsdc}</td>
-                <td className="px-2 py-1.5 data-cell">{m.priceBandBps}</td>
+                <td className="px-2 py-1.5 data-cell">{priceBandBpsToPercent(m.priceBandBps)}%</td>
+                <td className="px-2 py-1.5 data-cell">{m.markOracleTimeConstantSeconds}s</td>
+                <td className="px-2 py-1.5 data-cell">{m.markOracleMinUpdateInterval}s</td>
+                <td className="px-2 py-1.5 data-cell">{m.markOracleMaxPremiumBps} bps</td>
                 <td className="px-2 py-1.5 text-right">
                   <Btn size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onOpenEditor(m.id); }}>
                     edit <ArrowRight className="h-3 w-3" />
@@ -344,13 +348,16 @@ function emptyEditor() {
     deferredSettlement: true,
     maxLeverage: 10,
     mmrPct: "5.0",
-    stepSize: 1,
+    stepSize: "1",
     stepPrice: 0.00001,
     minOrderStep: 20,
     maxOrderStep: 200000,
     oiLimitSteps: 2_000_000,
     impactBaseUsdc: 50,
-    priceBandBps: 300,
+    priceBandPct: "3",
+    markOracleTimeConstantSeconds: DEFAULT_MARK_ORACLE_CONFIG.timeConstantSeconds,
+    markOracleMinUpdateInterval: DEFAULT_MARK_ORACLE_CONFIG.minUpdateInterval,
+    markOracleMaxPremiumBps: DEFAULT_MARK_ORACLE_CONFIG.maxPremiumBps,
   };
 }
 
@@ -359,10 +366,35 @@ function fromMarket(m: Market): EditorState {
     symbol: m.symbol, quote: QUOTE_SYMBOL, status: m.status,
     deferredSettlement: m.deferredSettlement,
     maxLeverage: m.maxLeverage, mmrPct: m.mmrPct,
-    stepSize: m.stepSize, stepPrice: m.stepPrice,
+    stepSize: String(m.stepSize), stepPrice: m.stepPrice,
     minOrderStep: m.minOrderStep, maxOrderStep: m.maxOrderStep,
     oiLimitSteps: m.oiLimitSteps, impactBaseUsdc: m.impactBaseUsdc,
-    priceBandBps: m.priceBandBps,
+    priceBandPct: priceBandBpsToPercent(m.priceBandBps),
+    markOracleTimeConstantSeconds: m.markOracleTimeConstantSeconds,
+    markOracleMinUpdateInterval: m.markOracleMinUpdateInterval,
+    markOracleMaxPremiumBps: m.markOracleMaxPremiumBps,
+  };
+}
+
+function fromTemplate(m: typeof AERO_TEMPLATE): EditorState {
+  return {
+    ...emptyEditor(),
+    symbol: m.symbol,
+    quote: QUOTE_SYMBOL,
+    status: m.status,
+    deferredSettlement: m.deferredSettlement,
+    maxLeverage: m.maxLeverage,
+    mmrPct: m.mmrPct,
+    stepSize: String(m.stepSize),
+    stepPrice: m.stepPrice,
+    minOrderStep: m.minOrderStep,
+    maxOrderStep: m.maxOrderStep,
+    oiLimitSteps: m.oiLimitSteps,
+    impactBaseUsdc: m.impactBaseUsdc,
+    priceBandPct: priceBandBpsToPercent(m.priceBandBps),
+    markOracleTimeConstantSeconds: m.markOracleTimeConstantSeconds,
+    markOracleMinUpdateInterval: m.markOracleMinUpdateInterval,
+    markOracleMaxPremiumBps: m.markOracleMaxPremiumBps,
   };
 }
 
@@ -470,13 +502,18 @@ function MarketEditor({
             <div className="space-y-2">
               <Field label="Max leverage" suffix="x" value={s.maxLeverage} onChange={(v) => set("maxLeverage", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.maxLeverage)} helper="1–50" />
               <Field label="Maintenance margin ratio" suffix="%" value={s.mmrPct} onChange={(v) => set("mmrPct", v)} mode={rawMode ? "raw" : "friendly"} raw={rawMmr(s.mmrPct) + "  (×1e18)"} helper="exact decimal string" />
-              <Field label="Match price band" suffix="bps" value={s.priceBandBps} onChange={(v) => set("priceBandBps", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.priceBandBps)} helper="200 bps = 2%" />
+              <Field label="Match price band" suffix="%" value={s.priceBandPct} onChange={(v) => set("priceBandPct", v)} mode={rawMode ? "raw" : "friendly"} raw={`${rawPriceBandBps(s.priceBandPct)} raw`} helper="5% = 50000 raw" type="text" />
               <Field label="Impact notional base" suffix="USDC" value={s.impactBaseUsdc} onChange={(v) => set("impactBaseUsdc", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawImpact(s.impactBaseUsdc)} helper="stored uint64; effective = base × 1e18 × maxLev" />
+              <div className="grid grid-cols-3 gap-2">
+                <Field label="Mark τ" suffix="sec" value={s.markOracleTimeConstantSeconds} onChange={(v) => set("markOracleTimeConstantSeconds", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.markOracleTimeConstantSeconds)} helper=">=10" />
+                <Field label="Mark min" suffix="sec" value={s.markOracleMinUpdateInterval} onChange={(v) => set("markOracleMinUpdateInterval", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.markOracleMinUpdateInterval)} />
+                <Field label="Mark max" suffix="bps" value={s.markOracleMaxPremiumBps} onChange={(v) => set("markOracleMaxPremiumBps", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.markOracleMaxPremiumBps)} helper="50 = 0.5%" />
+              </div>
             </div>
 
             {/* Sizing */}
             <div className="space-y-2">
-              <Field label="Step size" suffix={s.symbol || "TOKEN"} value={s.stepSize} onChange={(v) => set("stepSize", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawStepSize(s.stepSize)} helper={mode === "update" ? "immutable after open" : "18 decimals"} disabled={mode === "update"} />
+              <Field label="Step size" suffix={s.symbol || "TOKEN"} value={s.stepSize} onChange={(v) => set("stepSize", v)} mode={rawMode ? "raw" : "friendly"} raw={rawStepSize(s.stepSize)} helper={mode === "update" ? "immutable after open" : "exact 18-decimal token amount"} disabled={mode === "update"} type="text" />
               <Field label="Step price" suffix={QUOTE_SYMBOL} value={s.stepPrice} onChange={(v) => set("stepPrice", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawStepPrice(s.stepPrice) + "  (×10^8)"} helper={mode === "update" ? "immutable after open" : "price precision 8"} disabled={mode === "update"} />
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Min order step" value={s.minOrderStep} onChange={(v) => set("minOrderStep", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.minOrderStep)} />
@@ -501,7 +538,15 @@ function MarketEditor({
                 <DiffRow label="maxOrderStep" before={base.maxOrderStep} after={s.maxOrderStep} />
                 <DiffRow label="oiLimitSteps" before={base.oiLimitSteps} after={s.oiLimitSteps} />
                 <DiffRow label="impact base $" before={base.impactBaseUsdc} after={s.impactBaseUsdc} raw={{ b: base.impactBaseRaw, a: rawImpact(s.impactBaseUsdc) }} />
-                <DiffRow label="priceBandBps" before={base.priceBandBps} after={s.priceBandBps} />
+                <DiffRow
+                  label="price band %"
+                  before={`${priceBandBpsToPercent(base.priceBandBps)}%`}
+                  after={`${s.priceBandPct}%`}
+                  raw={{ b: `${base.priceBandBps} raw`, a: `${rawPriceBandBps(s.priceBandPct)} raw` }}
+                />
+                <DiffRow label="mark τ" before={`${base.markOracleTimeConstantSeconds}s`} after={`${s.markOracleTimeConstantSeconds}s`} />
+                <DiffRow label="mark min" before={`${base.markOracleMinUpdateInterval}s`} after={`${s.markOracleMinUpdateInterval}s`} />
+                <DiffRow label="mark max" before={`${base.markOracleMaxPremiumBps} bps`} after={`${s.markOracleMaxPremiumBps} bps`} />
               </div>
             </div>
           )}
@@ -537,6 +582,36 @@ type OracleValidationState =
 function shortHex(value: string | null) {
   if (!value) return "missing";
   return `${value.slice(0, 10)}…${value.slice(-6)}`;
+}
+
+function getInjectedProvider(): Eip1193Provider {
+  const provider =
+    (globalThis as typeof globalThis & { ethereum?: Eip1193Provider }).ethereum ??
+    (typeof window === "undefined"
+      ? undefined
+      : (window as Window & { ethereum?: Eip1193Provider }).ethereum);
+  if (!provider) {
+    throw new Error("injected wallet provider not found");
+  }
+  return provider;
+}
+
+async function getInjectedAccount(provider: Eip1193Provider): Promise<string | null> {
+  const accounts = await provider.request({ method: "eth_accounts" });
+  if (Array.isArray(accounts) && typeof accounts[0] === "string") {
+    return accounts[0];
+  }
+
+  const requestedAccounts = await provider.request({ method: "eth_requestAccounts" });
+  if (Array.isArray(requestedAccounts) && typeof requestedAccounts[0] === "string") {
+    return requestedAccounts[0];
+  }
+
+  return null;
+}
+
+function isPositiveRaw(raw: string) {
+  return /^\d+$/.test(raw) && BigInt(raw) > 0n;
 }
 
 function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marketId }: { env: EnvKey; wallet: string | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null }) {
@@ -640,10 +715,25 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
     {
       k: "precision",
       label: "Step precision",
-      s: mode === "update" || (state.stepSize > 0 && state.stepPrice > 0) ? "ok" : "fail",
+      s: mode === "update" || (isPositiveRaw(rawStepSize(state.stepSize)) && state.stepPrice > 0) ? "ok" : "fail",
       detail: mode === "update" ? "immutable after open" : `stepSize ${state.stepSize} · stepPrice ${state.stepPrice}`,
     },
-    { k: "nextId", label: mode === "open" ? "Next market id" : "Existing market id", s: "ok", detail: mode === "open" ? `${marketCount}` : "matched" },
+    {
+      k: "markOracle",
+      label: "Mark oracle config",
+      s:
+        Number.isInteger(state.markOracleTimeConstantSeconds) &&
+        state.markOracleTimeConstantSeconds >= 10 &&
+        Number.isInteger(state.markOracleMinUpdateInterval) &&
+        state.markOracleMinUpdateInterval >= 0 &&
+        Number.isInteger(state.markOracleMaxPremiumBps) &&
+        state.markOracleMaxPremiumBps > 0 &&
+        state.markOracleMaxPremiumBps <= 10_000
+          ? "ok"
+          : "fail",
+      detail: `τ ${state.markOracleTimeConstantSeconds}s · min ${state.markOracleMinUpdateInterval}s · max ${state.markOracleMaxPremiumBps}bps`,
+    },
+    { k: "nextId", label: mode === "open" ? "Next market id" : "Existing market id", s: "ok", detail: mode === "open" ? `${marketCount + 1}` : "matched" },
     ...oracleItems,
     ...(env === "mainnet"
       ? [{ k: "shadow", label: "Shadow run", s: "warn" as CheckState, detail: "required before transaction submission" }]
@@ -678,28 +768,92 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
 
 /* ----------------------------- Shadow Preflight ------------------------ */
 
-function ShadowPreflight({ mode, marketCount }: { mode: "open" | "update"; marketCount: number }) {
+function ShadowPreflight({
+  env,
+  mode,
+  state,
+  base,
+  wallet,
+  marketCount,
+  onResult,
+}: {
+  env: EnvKey;
+  mode: "open" | "update";
+  state: EditorState;
+  base: Market | null;
+  wallet: string | null;
+  marketCount: number;
+  onResult: (result: ShadowPreflightResult | null) => void;
+}) {
   const [running, setRunning] = useState(false);
-  const [done, setDone] = useState(false);
-  const pre = marketCount;
-  const post = mode === "open" ? pre + 1 : pre;
+  const [result, setResult] = useState<ShadowPreflightResult | null>(null);
+  const proposal = useMemo(() => {
+    try {
+      return { transaction: buildAtomicProposalForPanel(env, mode, state, base, marketCount), error: null };
+    } catch (error) {
+      return { transaction: null, error: error instanceof Error ? error.message : "invalid proposal values" };
+    }
+  }, [base, env, marketCount, mode, state]);
+  const passed = result?.status === "passed";
+  const failed = result?.status === "failed";
+  const pre = result?.preTotalMarkets ?? marketCount;
+  const post = result?.status === "passed" ? result.postTotalMarkets : mode === "open" ? pre + 1 : pre;
+
+  async function run() {
+    if (!proposal.transaction) return;
+    setRunning(true);
+    setResult(null);
+    onResult(null);
+    try {
+      const deployment = getDeploymentForEnv("shadow");
+      const provider = getInjectedProvider();
+      const injectedAccount = await getInjectedAccount(provider);
+      const signingWallet = injectedAccount ?? wallet;
+      if (!signingWallet) {
+        throw new Error("connect a wallet before running shadow preflight");
+      }
+      const signingAccount = getAddress(signingWallet);
+      const signer = createEip1193TransactionSigner(provider);
+      const client = await createShadowWalletClient(getBrowserRpcUrl("shadow"), signer);
+      const next = await executeShadowPreflight({
+        client,
+        executor: signingAccount,
+        perpsAddress: deployment.addresses.perps,
+        transaction: proposal.transaction,
+      });
+      setResult(next);
+      onResult(next);
+    } catch (error) {
+      const next: ShadowPreflightResult = {
+        status: "failed",
+        txHashes: [],
+        error: error instanceof Error ? error.message : "shadow preflight failed",
+      };
+      setResult(next);
+      onResult(next);
+    } finally {
+      setRunning(false);
+    }
+  }
+
   return (
     <section className="panel">
       <div className="panel-header">
         <span className="panel-title">Shadow preflight</span>
         <div className="flex items-center gap-1.5">
-          {done && <Chip tone="primary"><Check className="h-3 w-3" /> healthy</Chip>}
-          <Btn size="sm" variant={done ? "outline" : "primary"} onClick={() => { setRunning(true); setDone(false); setTimeout(() => { setRunning(false); setDone(true); }, 1200); }}>
+          {passed && <Chip tone="primary"><Check className="h-3 w-3" /> passed</Chip>}
+          {failed && <Chip tone="destructive"><X className="h-3 w-3" /> failed</Chip>}
+          <Btn size="sm" variant={passed ? "outline" : "primary"} disabled={running || !proposal.transaction} onClick={run}>
             {running ? <><Loader2 className="h-3 w-3 animate-spin" /> running</> : <><Zap className="h-3 w-3" /> run on shadow</>}
           </Btn>
         </div>
       </div>
-      {!done && !running && (
+      {!result && !running && (
         <div className="p-3 text-[11px] font-mono text-muted-foreground">
-          Required for mainnet submission. Forks current state, replays the atomic AccessManager transaction, and reads post-state.
+          {proposal.error ?? "Required for mainnet submission. Sends the exact AccessManager transaction to the shadow RPC endpoint and reads post-state."}
         </div>
       )}
-      {(running || done) && (
+      {(running || result) && (
         <div className="p-3 space-y-2">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="border border-border bg-surface-2 rounded-sm py-2">
@@ -715,7 +869,14 @@ function ShadowPreflight({ mode, marketCount }: { mode: "open" | "update"; marke
               <div className="font-mono text-[16px]">{post}</div>
             </div>
           </div>
-          {done && <div className="font-mono text-[11px] text-primary">✓ shadow run healthy</div>}
+          {passed && (
+            <div className="font-mono text-[11px] text-primary truncate" title={result.txHashes.join(", ")}>
+              tx {result.txHashes[0] ?? "submitted"} passed
+            </div>
+          )}
+          {failed && (
+            <div className="font-mono text-[11px] text-destructive break-words">{result.error}</div>
+          )}
         </div>
       )}
     </section>
@@ -731,6 +892,44 @@ function parseRawBigInt(raw: string) {
   return BigInt(raw);
 }
 
+function parseIntegerInRange(value: number, label: string, min: number, max: number) {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${label} must be an integer from ${min} to ${max}`);
+  }
+  return BigInt(value);
+}
+
+function buildMarkOracleConfigForPanel(state: EditorState): MarkOracleConfig {
+  return {
+    timeConstantSeconds: parseIntegerInRange(state.markOracleTimeConstantSeconds, "mark oracle time constant", 10, 2 ** 32 - 1),
+    minUpdateInterval: parseIntegerInRange(state.markOracleMinUpdateInterval, "mark oracle min update interval", 0, 2 ** 32 - 1),
+    maxPremiumBps: parseIntegerInRange(state.markOracleMaxPremiumBps, "mark oracle max premium bps", 1, 10_000),
+  };
+}
+
+function sameMarkOracleConfig(base: Market, config: MarkOracleConfig) {
+  return (
+    BigInt(base.markOracleTimeConstantSeconds) === config.timeConstantSeconds &&
+    BigInt(base.markOracleMinUpdateInterval) === config.minUpdateInterval &&
+    BigInt(base.markOracleMaxPremiumBps) === config.maxPremiumBps
+  );
+}
+
+function hasPerpsMarketConfigChange(base: Market, state: EditorState) {
+  try {
+    return (
+      BigInt(base.maxLeverage) !== BigInt(state.maxLeverage) ||
+      BigInt(base.mmrRaw) !== parseRawBigInt(rawMmr(state.mmrPct)) ||
+      BigInt(base.minOrderStep) !== BigInt(state.minOrderStep) ||
+      BigInt(base.maxOrderStep) !== BigInt(state.maxOrderStep) ||
+      BigInt(base.oiLimitSteps) !== BigInt(state.oiLimitSteps) ||
+      BigInt(base.priceBandBps) !== parseRawBigInt(rawPriceBandBps(state.priceBandPct))
+    );
+  } catch {
+    return true;
+  }
+}
+
 function buildPerpsConfigForPanel(env: EnvKey, state: EditorState, base: Market | null) {
   const deployment = getDeploymentForEnv(env);
   return {
@@ -744,15 +943,83 @@ function buildPerpsConfigForPanel(env: EnvKey, state: EditorState, base: Market 
     oiLimitSteps: BigInt(state.oiLimitSteps),
     stepSize: parseRawBigInt(base?.stepSizeRaw ?? rawStepSize(state.stepSize)),
     stepPrice: parseRawBigInt(base?.stepPriceRaw ?? rawStepPrice(state.stepPrice)),
-    matchPriceBandBps: BigInt(state.priceBandBps),
+    matchPriceBandBps: parseRawBigInt(rawPriceBandBps(state.priceBandPct)),
   };
 }
 
-function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; wallet: string | null; safeInfo: SafeAppInfo | null; marketCount: number }) {
+function buildAtomicProposalForPanel(
+  env: EnvKey,
+  mode: "open" | "update",
+  state: EditorState,
+  base: Market | null,
+  marketCount: number,
+) {
+  const deployment = getDeploymentForEnv(env);
+  const perpsConfig = buildPerpsConfigForPanel(env, state, base);
+  const markOracleConfig = buildMarkOracleConfigForPanel(state);
+  const nextMarketId = marketCount + 1;
+
+  if (mode === "update" && !base) {
+    throw new Error("select a market to update");
+  }
+
+  const updatePerpsConfig = mode === "update" && hasPerpsMarketConfigChange(base!, state);
+  const built = mode === "open"
+    ? buildOpenMarketProposal({
+        accessManagerAddress: deployment.addresses.accessManager,
+        perpsAddress: deployment.addresses.perps,
+        risexOracleAddress: deployment.addresses.risexOracle,
+        nextMarketId,
+        perpsConfig,
+        bookConfig: {
+          stepSize: perpsConfig.stepSize,
+          stepPrice: perpsConfig.stepPrice,
+        },
+        markPriceId: deriveMarkPriceId(state.symbol),
+        indexPriceId: deriveIndexPriceId(state.symbol),
+        deferredMode: state.deferredSettlement,
+        impactNotionalBaseUsdc: parseRawBigInt(rawImpact(state.impactBaseUsdc)),
+        markOracleConfig,
+      })
+    : buildUpdateMarketProposal({
+        accessManagerAddress: deployment.addresses.accessManager,
+        perpsAddress: deployment.addresses.perps,
+        risexOracleAddress: deployment.addresses.risexOracle,
+        marketId: base!.id,
+        perpsConfig: updatePerpsConfig
+          ? { ...perpsConfig, unlocked: base!.status === "unlocked" }
+          : undefined,
+        lock: base!.status !== state.status ? state.status === "locked" : undefined,
+        deferredMode: base!.deferredSettlement !== state.deferredSettlement ? state.deferredSettlement : undefined,
+        impactNotionalBaseUsdc: base!.impactBaseUsdc !== state.impactBaseUsdc ? parseRawBigInt(rawImpact(state.impactBaseUsdc)) : undefined,
+        markOracleConfig: sameMarkOracleConfig(base!, markOracleConfig) ? undefined : markOracleConfig,
+      });
+
+  if (mode === "update" && built.innerCalls.length === 0) {
+    throw new Error("no config changes selected");
+  }
+
+  return built.transaction;
+}
+
+function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount, shadowPassed }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; wallet: string | null; safeInfo: SafeAppInfo | null; marketCount: number; shadowPassed: boolean }) {
   const tickerName = marketTickerName(state.symbol);
   const deployment = getDeploymentForEnv(env);
   const { sendTransaction, isPending: walletPending } = useSendTransaction();
   const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" | "submitted" | "error"; message?: string }>({ status: "idle" });
+  const markOracleArgs = [
+    `tau=${state.markOracleTimeConstantSeconds}s`,
+    `minUpdate=${state.markOracleMinUpdateInterval}s`,
+    `maxPremium=${state.markOracleMaxPremiumBps}bps`,
+  ];
+  const showUpdateMarkOracle =
+    !!base &&
+    (
+      base.markOracleTimeConstantSeconds !== state.markOracleTimeConstantSeconds ||
+      base.markOracleMinUpdateInterval !== state.markOracleMinUpdateInterval ||
+      base.markOracleMaxPremiumBps !== state.markOracleMaxPremiumBps
+    );
+  const showUpdateMarketConfig = !!base && hasPerpsMarketConfigChange(base, state);
   const calls: { fn: string; args: string[]; required: boolean }[] = mode === "open" ? [
     { fn: "openMarket", required: true, args: [
       `name="${tickerName}"`,
@@ -761,62 +1028,34 @@ function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount }
       `minOrderStep=${state.minOrderStep}`,
       `maxOrderStep=${state.maxOrderStep}`,
       `oiLimit=${state.oiLimitSteps}`,
-      `priceBandBps=${state.priceBandBps}`,
+      `priceBand=${state.priceBandPct}% (${rawPriceBandBps(state.priceBandPct)} raw)`,
     ]},
     ...(state.deferredSettlement ? [{ fn: "setDeferredMode", required: false, args: [`marketId=NEXT`, "deferred=true"] }] : []),
     { fn: "setImpactNotionalBaseUsdc", required: false, args: [`marketId=NEXT`, `base=${rawImpact(state.impactBaseUsdc)}`] },
+    { fn: "configureMarkOracle", required: true, args: [`marketId=NEXT`, ...markOracleArgs] },
   ] : [
-    { fn: "updateMarketConfig", required: true, args: [
+    ...(showUpdateMarketConfig ? [{ fn: "updateMarketConfig", required: true, args: [
       `marketId=${base?.id ?? "?"}`,
       `maxLeverage=${state.maxLeverage}`,
       `mmr=${rawMmr(state.mmrPct)}`,
       `minOrderStep=${state.minOrderStep}`,
       `maxOrderStep=${state.maxOrderStep}`,
       `oiLimit=${state.oiLimitSteps}`,
-      `priceBandBps=${state.priceBandBps}`,
-    ]},
+      `priceBand=${state.priceBandPct}% (${rawPriceBandBps(state.priceBandPct)} raw)`,
+    ]}] : []),
     ...(base && base.status !== state.status && (state.status === "locked" || state.status === "unlocked") ? [{ fn: "setMarketLock", required: false, args: [`marketId=${base.id}`, `locked=${state.status === "locked"}`] }] : []),
     ...(base && base.deferredSettlement !== state.deferredSettlement ? [{ fn: "setDeferredMode", required: false, args: [`marketId=${base.id}`, `deferred=${state.deferredSettlement}`] }] : []),
     ...(base && base.impactBaseUsdc !== state.impactBaseUsdc ? [{ fn: "setImpactNotionalBaseUsdc", required: false, args: [`marketId=${base.id}`, `base=${rawImpact(state.impactBaseUsdc)}`] }] : []),
+    ...(showUpdateMarkOracle ? [{ fn: "configureMarkOracle", required: false, args: [`marketId=${base.id}`, ...markOracleArgs] }] : []),
   ];
 
   const proposal = useMemo(() => {
     try {
-      const perpsConfig = buildPerpsConfigForPanel(env, state, base);
-      if (mode === "update" && !base) {
-        return { transaction: null, error: "select a market to update" };
-      }
-
-      const built = mode === "open"
-        ? buildOpenMarketProposal({
-            accessManagerAddress: deployment.addresses.accessManager,
-            perpsAddress: deployment.addresses.perps,
-            nextMarketId: marketCount,
-            perpsConfig,
-            bookConfig: {
-              stepSize: perpsConfig.stepSize,
-              stepPrice: perpsConfig.stepPrice,
-            },
-            markPriceId: deriveMarkPriceId(state.symbol),
-            indexPriceId: deriveIndexPriceId(state.symbol),
-            deferredMode: state.deferredSettlement,
-            impactNotionalBaseUsdc: parseRawBigInt(rawImpact(state.impactBaseUsdc)),
-          })
-        : buildUpdateMarketProposal({
-            accessManagerAddress: deployment.addresses.accessManager,
-            perpsAddress: deployment.addresses.perps,
-            marketId: base!.id,
-            perpsConfig,
-            lock: base!.status !== state.status ? state.status === "locked" : undefined,
-            deferredMode: base!.deferredSettlement !== state.deferredSettlement ? state.deferredSettlement : undefined,
-            impactNotionalBaseUsdc: base!.impactBaseUsdc !== state.impactBaseUsdc ? parseRawBigInt(rawImpact(state.impactBaseUsdc)) : undefined,
-          });
-
-      return { transaction: built.transaction, error: null };
+      return { transaction: buildAtomicProposalForPanel(env, mode, state, base, marketCount), error: null };
     } catch (error) {
       return { transaction: null, error: error instanceof Error ? error.message : "invalid proposal values" };
     }
-  }, [base, deployment.addresses.accessManager, deployment.addresses.perps, env, marketCount, mode, state]);
+  }, [base, env, marketCount, mode, state]);
 
   const json = JSON.stringify({
     version: "1.0",
@@ -826,10 +1065,11 @@ function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount }
     transaction: proposal.transaction
       ? { to: proposal.transaction.to, value: proposal.transaction.value, data: proposal.transaction.data, contractMethod: proposal.transaction.functionName }
       : null,
-    innerCalls: calls.map(c => ({ to: deployment.addresses.perps, value: "0", contractMethod: c.fn })),
+    innerCalls: proposal.transaction?.innerCalls.map(c => ({ to: c.to, value: c.value, data: c.data, contractMethod: c.functionName })) ?? [],
   }, null, 2);
 
-  const canSubmit = !!proposal.transaction && (!!safeInfo || !!wallet) && submitState.status !== "submitting" && !walletPending;
+  const needsShadow = env === "mainnet";
+  const canSubmit = !!proposal.transaction && (!needsShadow || shadowPassed) && (!!safeInfo || !!wallet) && submitState.status !== "submitting" && !walletPending;
   const submitLabel = safeInfo ? "submit via Safe App" : "send wallet tx";
   const [shareCopied, setShareCopied] = useState(false);
 
@@ -902,6 +1142,7 @@ function ProposalPanel({ env, mode, state, base, wallet, safeInfo, marketCount }
       <div className="px-3 py-2 border-t border-border flex flex-wrap items-center gap-2 justify-between">
         <div className="flex items-center gap-2">
           {proposal.error ? <Chip tone="destructive"><X className="h-3 w-3" /> {proposal.error}</Chip>
+            : needsShadow && !shadowPassed ? <Chip tone="warning"><AlertTriangle className="h-3 w-3" /> run shadow first</Chip>
             : safeInfo ? <Chip tone="primary"><Check className="h-3 w-3" /> Safe App detected</Chip>
             : wallet ? <Chip tone="primary"><Check className="h-3 w-3" /> wallet ready</Chip>
             : <Chip tone="warning"><AlertTriangle className="h-3 w-3" /> connect wallet or open in Safe</Chip>}
@@ -947,6 +1188,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
   const { address, isConnected } = useAccount();
   const wallet = isConnected && address ? shortAddress(address) : null;
   const [safeInfo, setSafeInfo] = useState<SafeAppInfo | null>(null);
+  const [shadowResult, setShadowResult] = useState<ShadowPreflightResult | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [marketsState, setMarketsState] = useState<MarketsState>({
     loadState: "loading",
@@ -973,6 +1215,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
     const deployment = getDeploymentForEnv(env);
     readLiveMarkets(getPublicClient(env), deployment.addresses.perps, {
       ordersManagerAddress: deployment.addresses.ordersManager,
+      risexOracleAddress: deployment.addresses.risexOracle,
       multicall3Address: deployment.multicall3Address,
     })
       .then((live) => {
@@ -1010,6 +1253,10 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
   const editorMode: "open" | "update" = tab === "update" ? "update" : "open";
   const editorState = tab === "update" ? updateState : openState;
   const setEditorState = tab === "update" ? setUpdateState : setOpenState;
+
+  useEffect(() => {
+    setShadowResult(null);
+  }, [base, editorState, env, tab]);
 
   return (
     <div className="min-h-screen bg-background bg-grid">
@@ -1069,12 +1316,31 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
               <MarketEditor mode={editorMode} state={editorState} setState={setEditorState}
                 base={tab === "update" ? base : null}
                 rawMode={rawMode} setRawMode={setRawMode}
-                onLoadAero={() => setOpenState({ ...emptyEditor(), ...AERO_TEMPLATE })} />
+                onLoadAero={() => setOpenState(fromTemplate(AERO_TEMPLATE))} />
             </div>
             <div className="lg:col-span-4 space-y-3">
               <ValidationTape env={env} wallet={wallet} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} />
-              {env === "mainnet" && <ShadowPreflight mode={editorMode} marketCount={markets.length} />}
-              <ProposalPanel env={env} mode={editorMode} state={editorState} base={tab === "update" ? base : null} wallet={wallet} safeInfo={safeInfo} marketCount={markets.length} />
+              {env === "mainnet" && (
+                <ShadowPreflight
+                  env={env}
+                  mode={editorMode}
+                  state={editorState}
+                  base={tab === "update" ? base : null}
+                  wallet={wallet}
+                  marketCount={markets.length}
+                  onResult={setShadowResult}
+                />
+              )}
+              <ProposalPanel
+                env={env}
+                mode={editorMode}
+                state={editorState}
+                base={tab === "update" ? base : null}
+                wallet={wallet}
+                safeInfo={safeInfo}
+                marketCount={markets.length}
+                shadowPassed={env !== "mainnet" || shadowResult?.status === "passed"}
+              />
             </div>
           </>
         )}

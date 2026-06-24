@@ -1,7 +1,7 @@
 import { encodeFunctionData, type Address, type Hex } from 'viem'
 
-import { accessManagerAbi, perpsMarketConfigAbi } from './abis'
-import type { PerpsMarketConfig } from './rpc/market-reader'
+import { accessManagerAbi, perpsMarketConfigAbi, risexOracleAbi } from './abis'
+import type { MarkOracleConfig, PerpsMarketConfig } from './rpc/market-reader'
 
 export type OrdersBookConfig = {
   stepSize: bigint
@@ -26,6 +26,7 @@ export type AtomicAccessManagerTx = {
 export type OpenMarketProposalInput = {
   accessManagerAddress: Address
   perpsAddress: Address
+  risexOracleAddress?: Address
   nextMarketId: number
   perpsConfig: PerpsMarketConfig
   bookConfig: OrdersBookConfig
@@ -33,16 +34,19 @@ export type OpenMarketProposalInput = {
   indexPriceId: Hex
   deferredMode?: boolean
   impactNotionalBaseUsdc?: bigint
+  markOracleConfig?: MarkOracleConfig
 }
 
 export type UpdateMarketProposalInput = {
   accessManagerAddress: Address
   perpsAddress: Address
+  risexOracleAddress?: Address
   marketId: number
-  perpsConfig: PerpsMarketConfig
+  perpsConfig?: PerpsMarketConfig
   lock?: boolean
   deferredMode?: boolean
   impactNotionalBaseUsdc?: bigint
+  markOracleConfig?: MarkOracleConfig
 }
 
 export type MarketProposal = {
@@ -108,6 +112,10 @@ export function buildOpenMarketProposal(input: OpenMarketProposalInput): MarketP
     })
   }
 
+  if (input.risexOracleAddress && input.markOracleConfig) {
+    innerCalls.push(buildConfigureMarkOracleCall(input.risexOracleAddress, input.nextMarketId, input.markOracleConfig))
+  }
+
   return {
     innerCalls,
     transaction: buildAtomicAccessManagerTx(input.accessManagerAddress, innerCalls),
@@ -115,8 +123,10 @@ export function buildOpenMarketProposal(input: OpenMarketProposalInput): MarketP
 }
 
 export function buildUpdateMarketProposal(input: UpdateMarketProposalInput): MarketProposal {
-  const innerCalls: InnerCall[] = [
-    {
+  const innerCalls: InnerCall[] = []
+
+  if (input.perpsConfig) {
+    innerCalls.push({
       to: input.perpsAddress,
       value: '0',
       functionName: 'updateMarketConfig',
@@ -125,8 +135,8 @@ export function buildUpdateMarketProposal(input: UpdateMarketProposalInput): Mar
         functionName: 'updateMarketConfig',
         args: [input.marketId, encodePerpsMarketConfig(input.perpsConfig)],
       }),
-    },
-  ]
+    })
+  }
 
   if (input.lock !== undefined) {
     innerCalls.push({
@@ -167,9 +177,35 @@ export function buildUpdateMarketProposal(input: UpdateMarketProposalInput): Mar
     })
   }
 
+  if (input.risexOracleAddress && input.markOracleConfig) {
+    innerCalls.push(buildConfigureMarkOracleCall(input.risexOracleAddress, input.marketId, input.markOracleConfig))
+  }
+
   return {
     innerCalls,
     transaction: buildAtomicAccessManagerTx(input.accessManagerAddress, innerCalls),
+  }
+}
+
+function buildConfigureMarkOracleCall(
+  risexOracleAddress: Address,
+  marketId: number,
+  config: MarkOracleConfig,
+): InnerCall {
+  return {
+    to: risexOracleAddress,
+    value: '0',
+    functionName: 'configureMarkOracle',
+    data: encodeFunctionData({
+      abi: risexOracleAbi,
+      functionName: 'configureMarkOracle',
+      args: [
+        marketId,
+        Number(config.timeConstantSeconds),
+        Number(config.minUpdateInterval),
+        Number(config.maxPremiumBps),
+      ],
+    }),
   }
 }
 

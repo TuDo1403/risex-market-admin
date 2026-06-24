@@ -1,7 +1,13 @@
 import { createPublicClient, http, type Address, type PublicClient } from 'viem'
 
 import type { DeploymentEnvironment } from '@/src/config/deployments'
-import { ordersManagerAbi, perpsMarketConfigAbi } from '@/src/lib/abis'
+import { ordersManagerAbi, perpsMarketConfigAbi, risexOracleAbi } from '@/src/lib/abis'
+
+export type MarkOracleConfig = {
+  timeConstantSeconds: bigint
+  minUpdateInterval: bigint
+  maxPremiumBps: bigint
+}
 
 export type PerpsMarketConfig = {
   name: string
@@ -17,6 +23,7 @@ export type PerpsMarketConfig = {
   matchPriceBandBps: bigint
   impactNotionalBaseUsdc?: bigint
   deferredSettlement?: boolean
+  markOracleConfig?: MarkOracleConfig
 }
 
 export type LiveMarket = PerpsMarketConfig & {
@@ -29,6 +36,7 @@ type MulticallClient = ReadContractClient & Pick<PublicClient, 'multicall'>
 type ReadLiveMarketsOptions = {
   multicall3Address?: Address
   ordersManagerAddress?: Address
+  risexOracleAddress?: Address
 }
 
 export async function readLiveMarkets(
@@ -48,7 +56,9 @@ export async function readLiveMarkets(
     return []
   }
 
-  const contracts = Array.from({ length: totalMarkets }, (_, id) => {
+  const marketIds = Array.from({ length: totalMarkets }, (_, index) => index + 1)
+
+  const contracts = marketIds.map((id) => {
     const baseContracts = [
       {
         address: perpsAddress,
@@ -65,7 +75,17 @@ export async function readLiveMarkets(
     ]
 
     if (!options.ordersManagerAddress) {
-      return baseContracts
+      return options.risexOracleAddress
+        ? [
+            ...baseContracts,
+            {
+              address: options.risexOracleAddress,
+              abi: risexOracleAbi,
+              functionName: 'getMarkOracleConfig',
+              args: [id],
+            },
+          ]
+        : baseContracts
     }
 
     return [
@@ -76,6 +96,16 @@ export async function readLiveMarkets(
         functionName: 'isDeferredMode',
         args: [perpsAddress, id],
       },
+      ...(options.risexOracleAddress
+        ? [
+            {
+              address: options.risexOracleAddress,
+              abi: risexOracleAbi,
+              functionName: 'getMarkOracleConfig',
+              args: [id],
+            },
+          ]
+        : []),
     ]
   }).flat()
 
@@ -85,19 +115,24 @@ export async function readLiveMarkets(
     multicallAddress: options.multicall3Address,
   })
 
-  const resultWidth = options.ordersManagerAddress ? 3 : 2
+  const resultWidth = 2 + (options.ordersManagerAddress ? 1 : 0) + (options.risexOracleAddress ? 1 : 0)
 
-  return Array.from({ length: totalMarkets }, (_, id) => {
-    const offset = id * resultWidth
+  return marketIds.map((id, index) => {
+    const offset = index * resultWidth
+    let resultIndex = offset
     const config = results[offset]
-    const impactNotionalBaseUsdc = results[offset + 1] as bigint | number | string
-    const deferredSettlement = options.ordersManagerAddress ? Boolean(results[offset + 2]) : false
+    resultIndex += 1
+    const impactNotionalBaseUsdc = results[resultIndex] as bigint | number | string
+    resultIndex += 1
+    const deferredSettlement = options.ordersManagerAddress ? Boolean(results[resultIndex++]) : false
+    const markOracleConfig = options.risexOracleAddress ? normalizeMarkOracleConfig(results[resultIndex]) : undefined
 
     return {
       id,
       ...normalizeMarketConfig(config),
       impactNotionalBaseUsdc: BigInt(impactNotionalBaseUsdc),
       deferredSettlement,
+      markOracleConfig,
     }
   })
 }
@@ -122,5 +157,14 @@ function normalizeMarketConfig(config: unknown): PerpsMarketConfig {
     stepSize: BigInt(value.stepSize),
     stepPrice: BigInt(value.stepPrice),
     matchPriceBandBps: BigInt(value.matchPriceBandBps),
+  }
+}
+
+function normalizeMarkOracleConfig(config: unknown): MarkOracleConfig {
+  const value = config as MarkOracleConfig
+  return {
+    timeConstantSeconds: BigInt(value.timeConstantSeconds),
+    minUpdateInterval: BigInt(value.minUpdateInterval),
+    maxPremiumBps: BigInt(value.maxPremiumBps),
   }
 }

@@ -4,10 +4,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { readLiveMarkets } from './market-reader'
 
 const perps = '0x53f10fAcFC8965750494E6965F5d6dA39B41d852' as Address
+const risexOracle = '0x8fC4D0Cf74cdF595254cB763d4C05D38Df0e9503' as Address
 const quote = '0x0000000000000000000000000000000000000001' as Address
 
 describe('live market reader', () => {
-  it('enumerates markets from getTotalMarkets and then getMarketConfig(id)', async () => {
+  it('enumerates one-based market ids from getTotalMarkets and then getMarketConfig(id)', async () => {
     const readContract = vi.fn().mockResolvedValueOnce(2n)
     const multicall = vi.fn().mockResolvedValueOnce([
       {
@@ -25,6 +26,7 @@ describe('live market reader', () => {
       },
       250n,
       false,
+      { timeConstantSeconds: 480n, minUpdateInterval: 10n, maxPremiumBps: 50n },
       {
         name: 'AERO/USD',
         quote,
@@ -40,6 +42,7 @@ describe('live market reader', () => {
       },
       50n,
       true,
+      { timeConstantSeconds: 450n, minUpdateInterval: 10n, maxPremiumBps: 30n },
     ])
 
     const markets = await readLiveMarkets(
@@ -48,18 +51,20 @@ describe('live market reader', () => {
       {
         multicall3Address: '0xcA11bde05977b3631167028862bE2a173976CA11',
         ordersManagerAddress: '0xE03C1D5081eb2d0E6bFd62A949C5b12eFa44F2cD',
+        risexOracleAddress: risexOracle,
       },
     )
 
     expect(markets).toHaveLength(2)
-    expect(markets[0]?.id).toBe(0)
+    expect(markets[0]?.id).toBe(1)
     expect(markets[1]).toMatchObject({
-      id: 1,
+      id: 2,
       name: 'AERO/USD',
       maxLeverage: 3n,
       maintenanceMarginFactor: 4_500_000_000_000_000_000n,
       impactNotionalBaseUsdc: 50n,
       deferredSettlement: true,
+      markOracleConfig: { timeConstantSeconds: 450n, minUpdateInterval: 10n, maxPremiumBps: 30n },
     })
     expect(readContract).toHaveBeenNthCalledWith(1, expect.objectContaining({ functionName: 'getTotalMarkets' }))
     expect(readContract).toHaveBeenCalledTimes(1)
@@ -68,12 +73,14 @@ describe('live market reader', () => {
       allowFailure: false,
       multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
       contracts: [
-        expect.objectContaining({ functionName: 'getMarketConfig', args: [0] }),
-        expect.objectContaining({ functionName: 'getImpactNotionalBaseUsdc', args: [0] }),
-        expect.objectContaining({ functionName: 'isDeferredMode', args: [perps, 0] }),
         expect.objectContaining({ functionName: 'getMarketConfig', args: [1] }),
         expect.objectContaining({ functionName: 'getImpactNotionalBaseUsdc', args: [1] }),
         expect.objectContaining({ functionName: 'isDeferredMode', args: [perps, 1] }),
+        expect.objectContaining({ functionName: 'getMarkOracleConfig', args: [1] }),
+        expect.objectContaining({ functionName: 'getMarketConfig', args: [2] }),
+        expect.objectContaining({ functionName: 'getImpactNotionalBaseUsdc', args: [2] }),
+        expect.objectContaining({ functionName: 'isDeferredMode', args: [perps, 2] }),
+        expect.objectContaining({ functionName: 'getMarkOracleConfig', args: [2] }),
       ],
     })
   })

@@ -1,7 +1,18 @@
-import { createWalletClient, http, publicActions, type Address, type Hex } from 'viem'
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  http,
+  publicActions,
+  toHex,
+  type Address,
+  type Hex,
+} from 'viem'
 
 import { perpsMarketConfigAbi } from './abis'
 import type { AtomicAccessManagerTx } from './proposal-builder'
+
+export const SHADOW_FALLBACK_GAS_LIMIT = 8_000_000n
 
 type ShadowClient = {
   sendTransaction(args: { account: Address; to: Address; data: Hex; value: bigint }): Promise<Hex>
@@ -11,6 +22,23 @@ type ShadowClient = {
     abi: typeof perpsMarketConfigAbi
     functionName: 'getTotalMarkets'
   }): Promise<bigint | number>
+}
+
+export type Eip1193Provider = {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>
+}
+
+export type ShadowTransactionSigner = {
+  signTransaction(args: {
+    from: Address
+    to: Address
+    data: Hex
+    value: bigint
+    chainId: number
+    gas: bigint
+    gasPrice: bigint
+    nonce: number
+  }): Promise<Hex>
 }
 
 export type ShadowPreflightInput = {
@@ -35,8 +63,95 @@ export type ShadowPreflightResult =
       error: string
     }
 
-export function createShadowWalletClient(rpcUrl: string) {
+export function createEip1193TransactionSigner(provider: Eip1193Provider): ShadowTransactionSigner {
+  return {
+    async signTransaction(args) {
+      const signed = await provider.request({
+        method: 'eth_signTransaction',
+        params: [
+          {
+            from: args.from,
+            to: args.to,
+            data: args.data,
+            value: toHex(args.value),
+            chainId: toHex(args.chainId),
+            gas: toHex(args.gas),
+            gasPrice: toHex(args.gasPrice),
+            nonce: toHex(args.nonce),
+          },
+        ],
+      })
+
+      if (typeof signed !== 'string' || !signed.startsWith('0x')) {
+        throw new Error('wallet did not return a signed transaction')
+      }
+
+      return signed as Hex
+    },
+  }
+}
+
+export async function createShadowWalletClient(rpcUrl: string, signer?: ShadowTransactionSigner) {
+  const publicClient = createPublicClient({
+    transport: http(rpcUrl),
+  })
+  const chainId = await publicClient.getChainId()
+  const chain = defineChain({
+    id: chainId,
+    name: 'RISE Mainnet Shadow',
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [rpcUrl] } },
+  })
+
+  const shadowClient = createPublicClient({
+    chain,
+    transport: http(rpcUrl),
+  }).extend(publicActions)
+
+  if (signer) {
+    return {
+      async sendTransaction(args: { account: Address; to: Address; data: Hex; value: bigint }) {
+        const [nonce, gasPrice] = await Promise.all([
+          shadowClient.getTransactionCount({ address: args.account }),
+          shadowClient.getGasPrice(),
+        ])
+        let gas = SHADOW_FALLBACK_GAS_LIMIT
+        try {
+          gas = await shadowClient.estimateGas({
+            account: args.account,
+            to: args.to,
+            data: args.data,
+            value: args.value,
+          })
+        } catch {
+          // Shadow preflight should broadcast and let the receipt/post-state report
+          // the real result; estimateGas commonly reverts for transactions we still
+          // want to test on the fork.
+        }
+        const serializedTransaction = await signer.signTransaction({
+          from: args.account,
+          to: args.to,
+          data: args.data,
+          value: args.value,
+          chainId,
+          gas,
+          gasPrice,
+          nonce,
+        })
+
+        return shadowClient.sendRawTransaction({ serializedTransaction })
+      },
+      waitForTransactionReceipt: (args: { hash: Hex }) => shadowClient.waitForTransactionReceipt(args),
+      readContract: (args: {
+        address: Address
+        abi: typeof perpsMarketConfigAbi
+        functionName: 'getTotalMarkets'
+      }) => shadowClient.readContract(args),
+    }
+  }
+
   return createWalletClient({
+    chain,
     transport: http(rpcUrl),
   }).extend(publicActions)
 }
