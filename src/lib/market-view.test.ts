@@ -18,7 +18,7 @@ describe('live market display adapter', () => {
       maxOrderStep: 200_000n,
       oiLimitSteps: 2_000_000n,
       stepSize: 1_000_000_000_000_000_000n,
-      stepPrice: 1_000n,
+      stepPrice: 10_000_000_000_000n,
       matchPriceBandBps: 50n,
       impactNotionalBaseUsdc: 50n,
     })
@@ -35,7 +35,7 @@ describe('live market display adapter', () => {
       stepSize: 1,
       stepSizeRaw: '1000000000000000000',
       stepPrice: 0.00001,
-      stepPriceRaw: '1000',
+      stepPriceRaw: '10000000000000',
       minOrderStep: 20,
       maxOrderStep: 200000,
       oiLimitSteps: 2000000,
