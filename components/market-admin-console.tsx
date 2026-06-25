@@ -228,6 +228,14 @@ function DeferredPill({ enabled }: { enabled: boolean }) {
   return <Chip tone="muted">sync</Chip>;
 }
 
+function markOracleDisplayValue(m: Market, key: 'markOracleTimeConstantSeconds' | 'markOracleMinUpdateInterval' | 'markOracleMaxPremiumBps', suffix: string) {
+  if (!m.markOracleConfigured) {
+    return "not configured";
+  }
+
+  return `${m[key]}${suffix}`;
+}
+
 function MarketsTable({
   env, markets, selectedId, onSelect, onOpenEditor, loadState, error, onRefresh,
 }: {
@@ -318,9 +326,9 @@ function MarketsTable({
                 <td className="px-2 py-1.5 data-cell">{fmt(m.oiLimitSteps)}</td>
                 <td className="px-2 py-1.5 data-cell">${m.impactBaseUsdc}</td>
                 <td className="px-2 py-1.5 data-cell">{priceBandBpsToPercent(m.priceBandBps)}%</td>
-                <td className="px-2 py-1.5 data-cell">{m.markOracleTimeConstantSeconds}s</td>
-                <td className="px-2 py-1.5 data-cell">{m.markOracleMinUpdateInterval}s</td>
-                <td className="px-2 py-1.5 data-cell">{m.markOracleMaxPremiumBps} bps</td>
+                <td className="px-2 py-1.5 data-cell">{markOracleDisplayValue(m, "markOracleTimeConstantSeconds", "s")}</td>
+                <td className="px-2 py-1.5 data-cell">{markOracleDisplayValue(m, "markOracleMinUpdateInterval", "s")}</td>
+                <td className="px-2 py-1.5 data-cell">{markOracleDisplayValue(m, "markOracleMaxPremiumBps", " bps")}</td>
                 <td className="px-2 py-1.5 text-right">
                   <Btn size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onOpenEditor(m.id); }}>
                     edit <ArrowRight className="h-3 w-3" />
@@ -543,9 +551,9 @@ function MarketEditor({
                   after={`${s.priceBandPct}%`}
                   raw={{ b: `${base.priceBandBps} raw`, a: `${rawPriceBandBps(s.priceBandPct)} raw` }}
                 />
-                <DiffRow label="mark τ" before={`${base.markOracleTimeConstantSeconds}s`} after={`${s.markOracleTimeConstantSeconds}s`} />
-                <DiffRow label="mark min" before={`${base.markOracleMinUpdateInterval}s`} after={`${s.markOracleMinUpdateInterval}s`} />
-                <DiffRow label="mark max" before={`${base.markOracleMaxPremiumBps} bps`} after={`${s.markOracleMaxPremiumBps} bps`} />
+                <DiffRow label="mark τ" before={markOracleDisplayValue(base, "markOracleTimeConstantSeconds", "s")} after={markOracleDiffAfterValue(base, s, "markOracleTimeConstantSeconds", "s")} />
+                <DiffRow label="mark min" before={markOracleDisplayValue(base, "markOracleMinUpdateInterval", "s")} after={markOracleDiffAfterValue(base, s, "markOracleMinUpdateInterval", "s")} />
+                <DiffRow label="mark max" before={markOracleDisplayValue(base, "markOracleMaxPremiumBps", " bps")} after={markOracleDiffAfterValue(base, s, "markOracleMaxPremiumBps", " bps")} />
               </div>
             </div>
           )}
@@ -784,6 +792,19 @@ function hasMarkOracleConfigChange(base: Market, state: EditorState) {
   } catch {
     return true;
   }
+}
+
+function markOracleDiffAfterValue(
+  base: Market,
+  state: EditorState,
+  key: 'markOracleTimeConstantSeconds' | 'markOracleMinUpdateInterval' | 'markOracleMaxPremiumBps',
+  suffix: string,
+) {
+  if (!hasMarkOracleConfigChange(base, state)) {
+    return markOracleDisplayValue(base, key, suffix);
+  }
+
+  return `${state[key]}${suffix}`;
 }
 
 function rawMmrForPanel(base: Market | null, state: EditorState) {

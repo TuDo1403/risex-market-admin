@@ -151,6 +151,18 @@ describe('MarketAdminConsole', () => {
     expect(await screen.findByText(/index 100000000 · mark 100100000/i)).toBeInTheDocument()
   })
 
+  it('reports unconfigured mark oracle rows instead of editable defaults', async () => {
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    const row = (await screen.findByText('ARB/USDC')).closest('tr')
+
+    expect(row).not.toBeNull()
+    expect(within(row!).getAllByText(/not configured/i)).toHaveLength(3)
+    expect(within(row!).queryByText('480s')).not.toBeInTheDocument()
+    expect(within(row!).queryByText('10s')).not.toBeInTheDocument()
+    expect(within(row!).queryByText('50 bps')).not.toBeInTheDocument()
+  })
+
   it('does not chain updateMarketConfig for mark-oracle-only updates', async () => {
     const user = userEvent.setup()
     render(<MarketAdminConsole initialEnv="staging" />)
