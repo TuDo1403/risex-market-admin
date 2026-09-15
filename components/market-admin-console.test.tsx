@@ -1,3 +1,4 @@
+import { decodeFunctionData, type Hex } from 'viem'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +7,7 @@ import { MarketAdminConsole } from './market-admin-console'
 import { rawMmr, type EnvKey, type Market } from '@/src/lib/market-domain'
 import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
 import { getDeploymentForEnv } from '@/src/config/deployments'
+import { accessManagerAbi, perpsMarketConfigAbi } from '@/src/lib/abis'
 
 const hookState = vi.hoisted(() => ({
   address: null as string | null,
@@ -243,6 +245,80 @@ describe('MarketAdminConsole', () => {
 
     expect(await screen.findByText(/connect wallet to check/i)).toBeInTheDocument()
     expect(accessMocks.checkAccessForCalls).not.toHaveBeenCalled()
+  })
+
+  it('batches edits across markets into one AccessManager.multicall', async () => {
+    const user = userEvent.setup()
+    hookState.address = '0x9953E4D18400Fc15125c27c3d0C83BE38D561d36'
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    // stage market #1 (ETH)
+    await user.dblClick(await screen.findByText('ETH/USDC'))
+    await user.clear(screen.getByLabelText(/Max leverage/i))
+    await user.type(screen.getByLabelText(/Max leverage/i), '11')
+    await user.click(screen.getByRole('button', { name: /add to batch/i }))
+
+    // stage market #3 (SOL)
+    await user.dblClick(await screen.findByText('SOL/USDC'))
+    await user.clear(screen.getByLabelText(/Impact notional base/i))
+    await user.type(screen.getByLabelText(/Impact notional base/i), '77')
+    await user.click(screen.getByRole('button', { name: /add to batch/i }))
+
+    expect(screen.getByText(/2 markets batched/i)).toBeInTheDocument()
+
+    // one transaction, to the AccessManager, carrying both markets' calls
+    const json = JSON.parse(document.querySelector('pre')!.textContent!)
+    expect(json.transaction.to).toBe(getDeploymentForEnv('staging').addresses.accessManager)
+    expect(json.transaction.contractMethod).toBe('AccessManager.multicall')
+
+    const outer = decodeFunctionData({ abi: accessManagerAbi, data: json.transaction.data })
+    expect(outer.functionName).toBe('multicall')
+    const entries = outer.args![0] as Hex[]
+    expect(entries).toHaveLength(2)
+    const targets = entries.map((entry) => {
+      const inner = decodeFunctionData({ abi: accessManagerAbi, data: entry })
+      return decodeFunctionData({ abi: perpsMarketConfigAbi, data: (inner.args as [string, Hex])[1] })
+    })
+    expect(targets.map(t => t.functionName)).toEqual(['updateMarketConfig', 'setImpactNotionalBaseUsdc'])
+    expect((targets[0]!.args as [number, unknown])[0]).toBe(1)
+    expect((targets[1]!.args as [number, unknown])[0]).toBe(3)
+  })
+
+  it('submits the whole batch as a single transaction', async () => {
+    const user = userEvent.setup()
+    hookState.address = '0x9953E4D18400Fc15125c27c3d0C83BE38D561d36'
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.dblClick(await screen.findByText('ETH/USDC'))
+    await user.clear(screen.getByLabelText(/Max leverage/i))
+    await user.type(screen.getByLabelText(/Max leverage/i), '11')
+    await user.click(screen.getByRole('button', { name: /add to batch/i }))
+    await user.dblClick(await screen.findByText('SOL/USDC'))
+    await user.clear(screen.getByLabelText(/Max leverage/i))
+    await user.type(screen.getByLabelText(/Max leverage/i), '12')
+    await user.click(screen.getByRole('button', { name: /add to batch/i }))
+
+    await user.click(screen.getByRole('button', { name: /send wallet tx/i }))
+
+    expect(hookState.sendTransactionAsync).toHaveBeenCalledTimes(1)
+    expect(hookState.sendTransactionAsync.mock.calls[0][0].to).toBe(getDeploymentForEnv('staging').addresses.accessManager)
+  })
+
+  it('drops staged markets when the environment changes', async () => {
+    const user = userEvent.setup()
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.dblClick(await screen.findByText('ETH/USDC'))
+    await user.clear(screen.getByLabelText(/Max leverage/i))
+    await user.type(screen.getByLabelText(/Max leverage/i), '11')
+    await user.click(screen.getByRole('button', { name: /add to batch/i }))
+    expect(screen.getByText(/batch · staged markets/i)).toBeInTheDocument()
+
+    const environment = within(screen.getByRole('banner')).getByRole('group', { name: /environment/i })
+    await user.click(within(environment).getByRole('button', { name: /environment staging/i }))
+    await user.click(screen.getByRole('button', { name: /testnet/i }))
+
+    expect(screen.queryByText(/batch · staged markets/i)).not.toBeInTheDocument()
   })
 
   it('reports unconfigured mark oracle rows instead of editable defaults', async () => {
