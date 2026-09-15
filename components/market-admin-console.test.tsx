@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MarketAdminConsole } from './market-admin-console'
 import { rawMmr, type EnvKey, type Market } from '@/src/lib/market-domain'
 import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
+import { getDeploymentForEnv } from '@/src/config/deployments'
 
 const hookState = vi.hoisted(() => ({
   address: null as string | null,
@@ -63,6 +64,14 @@ vi.mock('@/src/lib/market-view', () => ({
   liveMarketToDisplayMarket: (market: Market) => market,
 }))
 
+const accessMocks = vi.hoisted(() => ({
+  checkAccessForCalls: vi.fn(),
+}))
+
+vi.mock('@/src/lib/access-manager', () => ({
+  checkAccessForCalls: accessMocks.checkAccessForCalls,
+}))
+
 const safeMocks = vi.hoisted(() => ({
   detectSafeApp: vi.fn(),
   submitSafeAppTransaction: vi.fn(),
@@ -91,6 +100,8 @@ describe('MarketAdminConsole', () => {
     hookState.address = null
     hookState.chainId = 1
     hookState.connect.mockReset()
+    accessMocks.checkAccessForCalls.mockReset()
+    accessMocks.checkAccessForCalls.mockResolvedValue({ allowed: true, results: [] })
     safeMocks.detectSafeApp.mockReset()
     safeMocks.detectSafeApp.mockResolvedValue(null)
     safeMocks.submitSafeAppTransaction.mockReset()
@@ -184,6 +195,54 @@ describe('MarketAdminConsole', () => {
     await user.click(await screen.findByRole('button', { name: /connect safe/i }))
 
     expect(hookState.connect).toHaveBeenCalledWith({ connector: hookState.safeConnector })
+  })
+
+  it('checks the planned selectors against the AccessManager for the connected signer', async () => {
+    const user = userEvent.setup()
+    hookState.address = '0x9953E4D18400Fc15125c27c3d0C83BE38D561d36'
+    accessMocks.checkAccessForCalls.mockResolvedValue({ allowed: true, results: [] })
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.dblClick(await screen.findByText('DOGE/USDC'))
+    await user.clear(screen.getByLabelText(/Max leverage/i))
+    await user.type(screen.getByLabelText(/Max leverage/i), '11')
+
+    expect(await screen.findByText(/selectors? allowed for/i)).toBeInTheDocument()
+    const [, accessManager, caller, calls] = accessMocks.checkAccessForCalls.mock.calls.at(-1)!
+    expect(accessManager).toBe(getDeploymentForEnv('staging').addresses.accessManager)
+    expect(caller).toBe('0x9953E4D18400Fc15125c27c3d0C83BE38D561d36')
+    expect(calls.map((c: { functionName: string }) => c.functionName)).toContain('updateMarketConfig')
+  })
+
+  it('fails the permissions row and names the denied selector', async () => {
+    const user = userEvent.setup()
+    hookState.address = '0x9953E4D18400Fc15125c27c3d0C83BE38D561d36'
+    accessMocks.checkAccessForCalls.mockResolvedValue({
+      allowed: false,
+      results: [
+        { functionName: 'updateMarketConfig', allowed: true },
+        { functionName: 'configureMarkOracle', allowed: false },
+      ],
+    })
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.dblClick(await screen.findByText('DOGE/USDC'))
+    await user.clear(screen.getByLabelText(/Max leverage/i))
+    await user.type(screen.getByLabelText(/Max leverage/i), '11')
+
+    expect(await screen.findByText(/denied: configureMarkOracle/i)).toBeInTheDocument()
+  })
+
+  it('does not call the AccessManager before a signer is connected', async () => {
+    const user = userEvent.setup()
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.dblClick(await screen.findByText('DOGE/USDC'))
+    await user.clear(screen.getByLabelText(/Max leverage/i))
+    await user.type(screen.getByLabelText(/Max leverage/i), '11')
+
+    expect(await screen.findByText(/connect wallet to check/i)).toBeInTheDocument()
+    expect(accessMocks.checkAccessForCalls).not.toHaveBeenCalled()
   })
 
   it('reports unconfigured mark oracle rows instead of editable defaults', async () => {

@@ -2,10 +2,11 @@
 
 import Image from 'next/image'
 import type React from 'react'
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Address } from 'viem';
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi'
 import { getDeploymentForEnv } from "@/src/config/deployments";
+import { checkAccessForCalls } from "@/src/lib/access-manager";
 import { getPublicClient } from "@/src/lib/client/public-client";
 import { liveMarketToDisplayMarket } from "@/src/lib/market-view";
 import { readLiveMarkets } from "@/src/lib/rpc/market-reader";
@@ -562,6 +563,12 @@ type OracleValidationResult = {
   markPriceLive: boolean;
 }
 
+type AccessCheckState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ok"; allowed: boolean; denied: string[] }
+  | { status: "error"; message: string };
+
 type OracleValidationState =
   | { status: "idle" }
   | { status: "loading" }
@@ -577,8 +584,9 @@ function isPositiveRaw(raw: string) {
   return /^\d+$/.test(raw) && BigInt(raw) > 0n;
 }
 
-function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marketId, base }: { env: EnvKey; wallet: string | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null; base?: Market | null }) {
+function ValidationTape({ env, wallet, walletAddress, safeInfo, state, mode, marketCount, marketId, base }: { env: EnvKey; wallet: string | null; walletAddress: Address | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null; base?: Market | null }) {
   const [oracleValidation, setOracleValidation] = useState<OracleValidationState>({ status: "idle" });
+  const [accessCheck, setAccessCheck] = useState<AccessCheckState>({ status: "idle" });
   const expectedIndexPriceId = state.symbol ? deriveIndexPriceId(state.symbol) : "";
   const expectedMarkPriceId = state.symbol ? deriveMarkPriceId(state.symbol) : "";
   const missingMarkOracle = mode === "update" && base?.markOracleConfigured === false;
@@ -628,6 +636,51 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
 
     return () => { cancelled = true; };
   }, [env, marketId, mode, state.symbol]);
+
+  const caller = (safeInfo?.safeAddress as Address | undefined) ?? walletAddress;
+  const plannedCalls = useMemo(() => {
+    try {
+      return buildAtomicProposalForPanel(env, mode, state, base ?? null, marketCount).innerCalls;
+    } catch {
+      return [];
+    }
+  }, [base, env, marketCount, mode, state]);
+  // canCall depends on (caller, target, selector) only, so re-check when the planned
+  // selectors change — not on every keystroke that edits their arguments.
+  const accessKey = plannedCalls.map(call => `${call.to}:${call.data.slice(0, 10)}`).join(",");
+  const plannedCallsRef = useRef(plannedCalls);
+  plannedCallsRef.current = plannedCalls;
+
+  useEffect(() => {
+    if (!caller || !accessKey) {
+      setAccessCheck({ status: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    setAccessCheck({ status: "loading" });
+
+    checkAccessForCalls(
+      getPublicClient(env),
+      getDeploymentForEnv(env).addresses.accessManager,
+      caller,
+      plannedCallsRef.current,
+    )
+      .then((result) => {
+        if (cancelled) return;
+        setAccessCheck({
+          status: "ok",
+          allowed: result.allowed,
+          denied: result.results.filter(entry => !entry.allowed).map(entry => entry.functionName),
+        });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setAccessCheck({ status: "error", message: error instanceof Error ? error.message : "permission check failed" });
+      });
+
+    return () => { cancelled = true; };
+  }, [accessKey, caller, env]);
 
   const oracleItems: { k: string; label: string; s: CheckState; detail: string }[] =
     !state.symbol
@@ -713,6 +766,26 @@ function ValidationTape({ env, wallet, safeInfo, state, mode, marketCount, marke
       label: "Signer",
       s: safeInfo || wallet ? "ok" : "fail",
       detail: safeInfo ? `Safe ${shortAddress(safeInfo.safeAddress)}` : (wallet ?? "connect wallet"),
+    },
+    {
+      k: "access",
+      label: "AccessManager permissions",
+      s:
+        accessCheck.status === "ok"
+          ? accessCheck.allowed ? "ok" : "fail"
+          : accessCheck.status === "error"
+            ? "warn"
+            : "pending",
+      detail:
+        accessCheck.status === "ok"
+          ? accessCheck.allowed
+            ? `${plannedCalls.length} selector${plannedCalls.length === 1 ? "" : "s"} allowed for ${shortAddress(caller ?? "")}`
+            : `denied: ${accessCheck.denied.join(", ")}`
+          : accessCheck.status === "error"
+            ? accessCheck.message
+            : accessCheck.status === "loading"
+              ? `checking ${plannedCalls.length} selector${plannedCalls.length === 1 ? "" : "s"}`
+              : caller ? "no calls planned yet" : "connect wallet to check",
     },
   ];
   return (
@@ -1200,7 +1273,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
                 onLoadAero={() => setOpenState(fromTemplate(AERO_TEMPLATE))} />
             </div>
             <div className="lg:col-span-4 space-y-3">
-              <ValidationTape env={env} wallet={wallet} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} base={tab === "update" ? base : null} />
+              <ValidationTape env={env} wallet={wallet} walletAddress={address ?? null} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} base={tab === "update" ? base : null} />
               <ProposalPanel
                 env={env}
                 mode={editorMode}
