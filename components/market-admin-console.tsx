@@ -223,7 +223,8 @@ function StatusPill({ s }: { s: Market["status"] }) {
   return <Chip tone="destructive"><Lock className="h-3 w-3" /> locked</Chip>;
 }
 
-function DeferredPill({ enabled }: { enabled: boolean }) {
+function DeferredPill({ enabled, supported = true }: { enabled: boolean; supported?: boolean }) {
+  if (!supported) return <Chip tone="muted">n/a</Chip>;
   if (enabled) return <Chip tone="warning"><CircleDot className="h-3 w-3" /> enabled</Chip>;
   return <Chip tone="muted">sync</Chip>;
 }
@@ -315,7 +316,7 @@ function MarketsTable({
                   </div>
                 </td>
                 <td className="px-2 py-1.5"><StatusPill s={m.status} /></td>
-                <td className="px-2 py-1.5"><DeferredPill enabled={m.deferredSettlement} /></td>
+                <td className="px-2 py-1.5"><DeferredPill enabled={m.deferredSettlement} supported={m.deferredSettlementSupported} /></td>
                 <td className="px-2 py-1.5 data-cell">{m.maxLeverage}x</td>
                 <td className="px-2 py-1.5 data-cell">{m.mmrPct}%</td>
                 <td className="px-2 py-1.5 data-cell text-muted-foreground truncate max-w-[100px]" title={m.mmrRaw}>{m.mmrRaw}</td>
@@ -426,11 +427,12 @@ function DiffRow({ label, before, after, raw }: { label: string; before: string 
 }
 
 function MarketEditor({
-  mode, state, setState, base, rawMode, setRawMode, onLoadAero,
+  mode, state, setState, base, rawMode, setRawMode, onLoadAero, deferredSupported = true,
 }: {
   mode: "open" | "update";
   state: EditorState; setState: (s: EditorState) => void;
   base?: Market | null;
+  deferredSupported?: boolean;
   rawMode: boolean; setRawMode: (b: boolean) => void;
   onLoadAero: () => void;
 }) {
@@ -496,11 +498,14 @@ function MarketEditor({
                 <label className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">Deferred settlement</label>
                 <button
                   type="button"
+                  disabled={!deferredSupported}
+                  title={deferredSupported ? undefined : "this deployment has no deferred-mode support"}
                   onClick={() => set("deferredSettlement", !s.deferredSettlement)}
                   className={cn("w-full h-8 border border-border rounded-sm px-2 font-mono text-[11px] uppercase tracking-wider",
-                    s.deferredSettlement ? "bg-warning/15 text-warning" : "bg-surface-2 text-muted-foreground hover:text-foreground")}
+                    !deferredSupported ? "bg-surface-2 text-muted-foreground opacity-60 cursor-not-allowed"
+                      : s.deferredSettlement ? "bg-warning/15 text-warning" : "bg-surface-2 text-muted-foreground hover:text-foreground")}
                 >
-                  {s.deferredSettlement ? "enabled" : "synchronous"}
+                  {!deferredSupported ? "unsupported" : s.deferredSettlement ? "enabled" : "synchronous"}
                 </button>
               </div>
             </div>
@@ -1147,6 +1152,13 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
     return () => { cancelled = true; };
   }, [env, refreshNonce]);
 
+  // Deployments without deferred mode (RISE testnet/mainnet today) must not be offered the toggle.
+  const deferredSupported = markets.length === 0 || markets.some(m => m.deferredSettlementSupported);
+  useEffect(() => {
+    if (deferredSupported) return;
+    setOpenState(s => (s.deferredSettlement ? { ...s, deferredSettlement: false } : s));
+  }, [deferredSupported]);
+
   // When env changes, reset selection if absent
   useEffect(() => { if (selectedId !== null && !markets.find(m => m.id === selectedId)) setSelectedId(null); }, [env, markets, selectedId]);
   // When selecting a market for update, prefill the editor
@@ -1219,6 +1231,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
                 onOpenEditor={(id) => { setSelectedId(id); setTab("update"); }} />
               <MarketEditor mode={editorMode} state={editorState} setState={setEditorState}
                 base={tab === "update" ? base : null}
+                deferredSupported={tab === "update" && base ? base.deferredSettlementSupported : deferredSupported}
                 rawMode={rawMode} setRawMode={setRawMode}
                 onLoadAero={() => setOpenState(fromTemplate(AERO_TEMPLATE))} />
             </div>

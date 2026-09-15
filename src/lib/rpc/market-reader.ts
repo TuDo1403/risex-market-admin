@@ -109,9 +109,11 @@ export async function readLiveMarkets(
     ]
   }).flat()
 
+  // allowFailure: older deployments (RISE testnet/mainnet today) lack isDeferredMode
+  // and getMarkOracleConfig; a single revert must not blank the whole market list.
   const results = await client.multicall({
     contracts,
-    allowFailure: false,
+    allowFailure: true,
     multicallAddress: options.multicall3Address,
   })
 
@@ -120,21 +122,31 @@ export async function readLiveMarkets(
   return marketIds.map((id, index) => {
     const offset = index * resultWidth
     let resultIndex = offset
-    const config = results[offset]
+    const config = unwrap(results[offset])
     resultIndex += 1
-    const impactNotionalBaseUsdc = results[resultIndex] as bigint | number | string
+    const impactNotionalBaseUsdc = unwrap(results[resultIndex]) as bigint | number | string | undefined
     resultIndex += 1
-    const deferredSettlement = options.ordersManagerAddress ? Boolean(results[resultIndex++]) : false
-    const markOracleConfig = options.risexOracleAddress ? normalizeMarkOracleConfig(results[resultIndex]) : undefined
+    const deferred = options.ordersManagerAddress ? unwrap(results[resultIndex++]) : undefined
+    const markOracle = options.risexOracleAddress ? unwrap(results[resultIndex]) : undefined
+
+    if (config === undefined) {
+      throw new Error(`failed to read market config for market ${id}`)
+    }
 
     return {
       id,
       ...normalizeMarketConfig(config),
-      impactNotionalBaseUsdc: BigInt(impactNotionalBaseUsdc),
-      deferredSettlement,
-      markOracleConfig,
+      impactNotionalBaseUsdc: impactNotionalBaseUsdc === undefined ? undefined : BigInt(impactNotionalBaseUsdc),
+      deferredSettlement: deferred === undefined ? undefined : Boolean(deferred),
+      markOracleConfig: markOracle === undefined ? undefined : normalizeMarkOracleConfig(markOracle),
     }
   })
+}
+
+// multicall(allowFailure: true) yields { status: 'success', result } | { status: 'failure', error }
+function unwrap(result: unknown): unknown {
+  const entry = result as { status: 'success' | 'failure'; result?: unknown } | undefined
+  return entry?.status === 'success' ? entry.result : undefined
 }
 
 export function createMarketPublicClient(env: DeploymentEnvironment): PublicClient {

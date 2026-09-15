@@ -32,6 +32,7 @@ export type Market = {
   quote: string;             // USDC
   status: MarketStatus;
   deferredSettlement: boolean;
+  deferredSettlementSupported: boolean; // false when the deployment has no deferred-mode support
   maxLeverage: number;       // x
   mmrPct: string;            // % decimal string, no JS float math for raw conversion
   mmrRaw: string;            // raw maintenanceMarginFactor
@@ -59,6 +60,7 @@ const mk = (m: Partial<Market> & { id: number; symbol: string }): Market => {
   return {
     status: "unlocked",
     deferredSettlement: true,
+    deferredSettlementSupported: true,
     maxLeverage: 20,
     mmrPct,
     mmrRaw: rawMmr(mmrPct),
