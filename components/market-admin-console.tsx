@@ -14,7 +14,7 @@ import type { MarkOracleConfig } from "@/src/lib/rpc/market-reader";
 import { readOpenOracleValidation, readOracleValidation } from "@/src/lib/rpc/oracle-validation";
 import { encodeReview } from "@/src/lib/review-link";
 import { detectSafeApp, submitSafeAppTransaction, type SafeAppInfo } from "@/src/lib/safe-app";
-import { buildOpenMarketProposal, buildUpdateMarketProposal, type AtomicAccessManagerTx } from "@/src/lib/proposal-builder";
+import { buildAtomicAccessManagerTx, buildOpenMarketProposal, buildUpdateMarketProposal, type AtomicAccessManagerTx, type InnerCall } from "@/src/lib/proposal-builder";
 import {
   ENVS, EnvKey, Market, AERO_TEMPLATE, DEFAULT_MARK_ORACLE_CONFIG, QUOTE_SYMBOL,
   fmt, rawMmr, rawImpact, rawStepPrice, rawStepSize,
@@ -25,7 +25,7 @@ import { deriveIndexPriceId, deriveMarkPriceId } from "@/src/lib/price-ids";
 import { cn } from "@/src/lib/utils";
 import {
   Activity, AlertTriangle, ArrowRight, Check, ChevronDown, Circle,
-  Copy, ExternalLink, FileJson, Hash, Loader2, Lock,
+  Copy, ExternalLink, FileJson, Hash, Layers, Loader2, Lock,
   Plug, Plus, RefreshCw, Search, Sparkles, Terminal, Unlock,
   Wallet, X, Zap,
 } from "lucide-react";
@@ -421,11 +421,13 @@ function DiffRow({ label, before, after, raw }: { label: string; before: string 
 }
 
 function MarketEditor({
-  mode, state, setState, base, rawMode, setRawMode, onLoadAero,
+  mode, state, setState, base, rawMode, setRawMode, onLoadAero, onStage, staged,
 }: {
   mode: "open" | "update";
   state: EditorState; setState: (s: EditorState) => void;
   base?: Market | null;
+  onStage?: () => void;
+  staged?: boolean;
   rawMode: boolean; setRawMode: (b: boolean) => void;
   onLoadAero: () => void;
 }) {
@@ -519,6 +521,11 @@ function MarketEditor({
             <div className="border-t border-border">
               <div className="px-3 py-1.5 flex items-center justify-between border-b border-border bg-surface-2">
                 <span className="panel-title">Before / After</span>
+                {onStage && (
+                  <Btn size="sm" variant="outline" onClick={onStage}>
+                    <Layers className="h-3 w-3" /> {staged ? "update in batch" : "add to batch"}
+                  </Btn>
+                )}
               </div>
               <div>
                 <DiffRow label="status" before={base.status} after={s.status} />
@@ -584,7 +591,7 @@ function isPositiveRaw(raw: string) {
   return /^\d+$/.test(raw) && BigInt(raw) > 0n;
 }
 
-function ValidationTape({ env, wallet, walletAddress, safeInfo, state, mode, marketCount, marketId, base }: { env: EnvKey; wallet: string | null; walletAddress: Address | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null; base?: Market | null }) {
+function ValidationTape({ env, wallet, walletAddress, safeInfo, state, mode, marketCount, marketId, base, batchCalls }: { env: EnvKey; wallet: string | null; walletAddress: Address | null; safeInfo: SafeAppInfo | null; state: EditorState; mode: "open" | "update"; marketCount: number; marketId?: number | null; base?: Market | null; batchCalls?: InnerCall[] | null }) {
   const [oracleValidation, setOracleValidation] = useState<OracleValidationState>({ status: "idle" });
   const [accessCheck, setAccessCheck] = useState<AccessCheckState>({ status: "idle" });
   const expectedIndexPriceId = state.symbol ? deriveIndexPriceId(state.symbol) : "";
@@ -639,12 +646,13 @@ function ValidationTape({ env, wallet, walletAddress, safeInfo, state, mode, mar
 
   const caller = (safeInfo?.safeAddress as Address | undefined) ?? walletAddress;
   const plannedCalls = useMemo(() => {
+    if (batchCalls?.length) return batchCalls;
     try {
       return buildAtomicProposalForPanel(env, mode, state, base ?? null, marketCount).innerCalls;
     } catch {
       return [];
     }
-  }, [base, env, marketCount, mode, state]);
+  }, [base, batchCalls, env, marketCount, mode, state]);
   // canCall depends on (caller, target, selector) only, so re-check when the planned
   // selectors change — not on every keystroke that edits their arguments.
   const accessKey = plannedCalls.map(call => `${call.to}:${call.data.slice(0, 10)}`).join(",");
@@ -809,6 +817,49 @@ function ValidationTape({ env, wallet, walletAddress, safeInfo, state, mode, mar
   );
 }
 
+/* ------------------------------ Batch Panel ---------------------------- */
+
+function BatchPanel({ batch, plan, onRemove, onClear }: {
+  batch: BatchEntry[];
+  plan: BatchPlan | null;
+  onRemove: (id: number) => void;
+  onClear: () => void;
+}) {
+  if (!batch.length) return null;
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div className="flex items-center gap-2">
+          <span className="panel-title">Batch · staged markets</span>
+          <Chip tone="accent"><Layers className="h-3 w-3" /> {batch.length} market{batch.length === 1 ? "" : "s"}</Chip>
+        </div>
+        <Btn size="sm" variant="ghost" onClick={onClear}>clear</Btn>
+      </div>
+
+      <ul className="divide-y divide-border">
+        {batch.map((entry) => (
+          <li key={entry.id} className="px-3 py-2 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="font-mono text-[12px]">{marketTickerName(entry.symbol)} <span className="text-muted-foreground">#{entry.id}</span></div>
+              <div className="font-mono text-[10px] text-muted-foreground truncate">
+                {plan?.rows.filter(row => row.args[0]?.includes(`#${entry.id}`)).map(row => row.fn).join(" · ") || "no changes"}
+              </div>
+            </div>
+            <button aria-label={`Remove ${entry.symbol} from batch`} onClick={() => onRemove(entry.id)} className="text-muted-foreground hover:text-destructive">
+              <X className="h-3 w-3" />
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <div className="px-3 py-1.5 border-t border-border font-mono text-[10px] text-muted-foreground">
+        {plan?.error ? plan.error : `submits as one AccessManager.multicall with ${plan?.rows.length ?? 0} inner call${plan?.rows.length === 1 ? "" : "s"}`}
+      </div>
+    </section>
+  );
+}
+
 /* ----------------------------- Proposal Panel -------------------------- */
 
 function parseRawBigInt(raw: string) {
@@ -960,10 +1011,55 @@ function buildAtomicProposalForPanel(
     throw new Error("no config changes selected");
   }
 
-  return built.transaction;
+  return built;
 }
 
-function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo, marketCount }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; wallet: string | null; walletAddress: Address | null; safeInfo: SafeAppInfo | null; marketCount: number }) {
+export type BatchEntry = { id: number; symbol: string; state: EditorState };
+
+type BatchPlan = {
+  transaction: AtomicAccessManagerTx | null;
+  rows: { fn: string; args: string[]; required: boolean }[];
+  error: string | null;
+};
+
+// Every market is governed by the same AccessManager, so staged markets collapse into
+// ONE AccessManager.multicall rather than one transaction per market.
+function buildBatchPlan(env: EnvKey, batch: BatchEntry[], markets: Market[]): BatchPlan {
+  try {
+    const rows: BatchPlan["rows"] = [];
+    const innerCalls: InnerCall[] = [];
+
+    for (const entry of batch) {
+      const base = markets.find(market => market.id === entry.id);
+      if (!base) {
+        throw new Error(`market #${entry.id} is no longer live on ${env}`);
+      }
+
+      for (const call of buildAtomicProposalForPanel(env, "update", entry.state, base, markets.length).innerCalls) {
+        innerCalls.push(call);
+        rows.push({
+          fn: call.functionName,
+          args: [`market=${marketTickerName(entry.symbol)} #${entry.id}`, `to=${shortAddress(call.to)}`],
+          required: true,
+        });
+      }
+    }
+
+    if (innerCalls.length === 0) {
+      throw new Error("no config changes staged");
+    }
+
+    return {
+      transaction: buildAtomicAccessManagerTx(getDeploymentForEnv(env).addresses.accessManager, innerCalls),
+      rows,
+      error: null,
+    };
+  } catch (error) {
+    return { transaction: null, rows: [], error: error instanceof Error ? error.message : "invalid batch values" };
+  }
+}
+
+function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo, marketCount, batchPlan, batchSize = 0 }: { env: EnvKey; mode: "open" | "update"; state: EditorState; base: Market | null; wallet: string | null; walletAddress: Address | null; safeInfo: SafeAppInfo | null; marketCount: number; batchPlan?: BatchPlan | null; batchSize?: number }) {
   const tickerName = marketTickerName(state.symbol);
   const deployment = getDeploymentForEnv(env);
   const { sendTransactionAsync, isPending: walletPending } = useSendTransaction();
@@ -975,7 +1071,7 @@ function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo
   ];
   const showUpdateMarkOracle = !!base && hasMarkOracleConfigChange(base, state);
   const showUpdateMarketConfig = !!base && hasPerpsMarketConfigChange(base, state);
-  const calls: { fn: string; args: string[]; required: boolean }[] = mode === "open" ? [
+  const singleCalls: { fn: string; args: string[]; required: boolean }[] = mode === "open" ? [
     { fn: "openMarket", required: true, args: [
       `name="${tickerName}"`,
       `maxLeverage=${state.maxLeverage}`,
@@ -1002,19 +1098,22 @@ function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo
     ...(showUpdateMarkOracle ? [{ fn: "configureMarkOracle", required: false, args: [`marketId=${base.id}`, ...markOracleArgs] }] : []),
   ];
 
-  const proposal = useMemo(() => {
+  const singleProposal = useMemo(() => {
     try {
-      return { transaction: buildAtomicProposalForPanel(env, mode, state, base, marketCount), error: null };
+      return { transaction: buildAtomicProposalForPanel(env, mode, state, base, marketCount).transaction, error: null as string | null };
     } catch (error) {
       return { transaction: null, error: error instanceof Error ? error.message : "invalid proposal values" };
     }
   }, [base, env, marketCount, mode, state]);
 
+  const proposal = batchPlan ?? singleProposal;
+  const calls = batchPlan ? batchPlan.rows : singleCalls;
+
   const json = JSON.stringify({
     version: "1.0",
     chainId: deployment.chainId,
     createdAt: new Date().toISOString(),
-    meta: { name: `${mode === "open" ? "Open" : "Update"} ${tickerName}`, env },
+    meta: { name: batchPlan ? `Update ${batchSize} markets` : `${mode === "open" ? "Open" : "Update"} ${tickerName}`, env },
     transaction: proposal.transaction
       ? { to: proposal.transaction.to, value: proposal.transaction.value, data: proposal.transaction.data, contractMethod: proposal.transaction.functionName }
       : null,
@@ -1068,6 +1167,7 @@ function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo
         <div className="flex items-center gap-2">
           <span className="panel-title">Proposal · ordered calls</span>
           <Chip tone="primary"><Zap className="h-3 w-3" /> AccessManager.multicall</Chip>
+          {batchPlan && <Chip tone="accent">{batchSize} market{batchSize === 1 ? "" : "s"} batched</Chip>}
         </div>
         <span className="text-[10px] font-mono text-muted-foreground">{calls.length} call{calls.length === 1 ? "" : "s"}</span>
       </div>
@@ -1142,6 +1242,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
   const [env, setEnv] = useState<EnvKey>(initialEnv);
   const [tab, setTab] = useState<Tab>("current");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [batch, setBatch] = useState<BatchEntry[]>([]);
   const [openState, setOpenState] = useState<EditorState>(emptyEditor());
   const [updateState, setUpdateState] = useState<EditorState>(emptyEditor());
   const [rawMode, setRawMode] = useState(false);
@@ -1196,6 +1297,23 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
 
     return () => { cancelled = true; };
   }, [env, refreshNonce]);
+
+  // Staged markets share one AccessManager, so they submit as a single multicall.
+  const batchPlan = useMemo(() => (batch.length ? buildBatchPlan(env, batch, markets) : null), [batch, env, markets]);
+  // Drafts are per-deployment; switching env would build calls against the wrong markets.
+  useEffect(() => { setBatch([]); }, [env]);
+
+  function stageCurrentMarket() {
+    if (!base) return;
+    const entry: BatchEntry = { id: base.id, symbol: base.symbol, state: updateState };
+    setBatch(current => {
+      const index = current.findIndex(item => item.id === base.id);
+      if (index === -1) return [...current, entry];
+      const next = [...current];
+      next[index] = entry;
+      return next;
+    });
+  }
 
   // When env changes, reset selection if absent
   useEffect(() => { if (selectedId !== null && !markets.find(m => m.id === selectedId)) setSelectedId(null); }, [env, markets, selectedId]);
@@ -1269,13 +1387,18 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
                 onOpenEditor={(id) => { setSelectedId(id); setTab("update"); }} />
               <MarketEditor mode={editorMode} state={editorState} setState={setEditorState}
                 base={tab === "update" ? base : null}
+                onStage={tab === "update" && base ? stageCurrentMarket : undefined}
+                staged={!!base && batch.some(entry => entry.id === base.id)}
                 rawMode={rawMode} setRawMode={setRawMode}
                 onLoadAero={() => setOpenState(fromTemplate(AERO_TEMPLATE))} />
             </div>
             <div className="lg:col-span-4 space-y-3">
-              <ValidationTape env={env} wallet={wallet} walletAddress={address ?? null} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} base={tab === "update" ? base : null} />
+              <ValidationTape env={env} batchCalls={batchPlan?.transaction?.innerCalls ?? null} wallet={wallet} walletAddress={address ?? null} safeInfo={safeInfo} state={editorState} mode={editorMode} marketCount={markets.length} marketId={tab === "update" ? base?.id : null} base={tab === "update" ? base : null} />
+              <BatchPanel batch={batch} plan={batchPlan} onRemove={(id: number) => setBatch(current => current.filter(entry => entry.id !== id))} onClear={() => setBatch([])} />
               <ProposalPanel
                 env={env}
+                batchPlan={batchPlan}
+                batchSize={batch.length}
                 mode={editorMode}
                 state={editorState}
                 base={tab === "update" ? base : null}
