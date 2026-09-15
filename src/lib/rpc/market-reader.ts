@@ -81,11 +81,12 @@ export async function readLiveMarkets(
       : []),
   ]).flat()
 
-  // allowFailure: deployments drift, and a function missing on one of them
-  // (getMarkOracleConfig on older oracles) must not blank the whole market list.
+  // allowFailure: false — every selector here exists on all deployments, and this
+  // console builds transactions from these values, so a partial read must raise
+  // rather than quietly render a market with zeroed config.
   const results = await client.multicall({
     contracts,
-    allowFailure: true,
+    allowFailure: false,
     multicallAddress: options.multicall3Address,
   })
 
@@ -93,27 +94,17 @@ export async function readLiveMarkets(
 
   return marketIds.map((id, index) => {
     const offset = index * resultWidth
-    const config = unwrap(results[offset])
-    const impactNotionalBaseUsdc = unwrap(results[offset + 1]) as bigint | number | string | undefined
-    const markOracle = options.risexOracleAddress ? unwrap(results[offset + 2]) : undefined
-
-    if (config === undefined) {
-      throw new Error(`failed to read market config for market ${id}`)
-    }
+    const config = results[offset]
+    const impactNotionalBaseUsdc = results[offset + 1] as bigint | number | string
+    const markOracle = options.risexOracleAddress ? results[offset + 2] : undefined
 
     return {
       id,
       ...normalizeMarketConfig(config),
-      impactNotionalBaseUsdc: impactNotionalBaseUsdc === undefined ? undefined : BigInt(impactNotionalBaseUsdc),
+      impactNotionalBaseUsdc: BigInt(impactNotionalBaseUsdc),
       markOracleConfig: markOracle === undefined ? undefined : normalizeMarkOracleConfig(markOracle),
     }
   })
-}
-
-// multicall(allowFailure: true) yields { status: 'success', result } | { status: 'failure', error }
-function unwrap(result: unknown): unknown {
-  const entry = result as { status: 'success' | 'failure'; result?: unknown } | undefined
-  return entry?.status === 'success' ? entry.result : undefined
 }
 
 export function createMarketPublicClient(env: DeploymentEnvironment): PublicClient {
