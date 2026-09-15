@@ -47,14 +47,12 @@ describe('market proposal builder', () => {
       },
       markPriceId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       indexPriceId: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-      deferredMode: true,
       impactNotionalBaseUsdc: 50n,
       markOracleConfig: { timeConstantSeconds: 480n, minUpdateInterval: 10n, maxPremiumBps: 50n },
     })
 
     expect(proposal.innerCalls.map((call) => call.functionName)).toEqual([
       'openMarket',
-      'setDeferredMode',
       'setImpactNotionalBaseUsdc',
       'configureMarkOracle',
     ])
@@ -65,7 +63,7 @@ describe('market proposal builder', () => {
     })
 
     const executeCalls = decodeOuterExecuteCalls(proposal.transaction.data)
-    expect(executeCalls).toHaveLength(4)
+    expect(executeCalls).toHaveLength(3)
 
     const firstExecute = decodeFunctionData({
       abi: accessManagerAbi,
@@ -74,30 +72,23 @@ describe('market proposal builder', () => {
     expect(firstExecute.functionName).toBe('execute')
     expect(firstExecute.args[0]).toBe(perps)
 
-    const deferred = decodeFunctionData({
-      abi: perpsMarketConfigAbi,
-      data: proposal.innerCalls[1]!.data,
-    })
-    expect(deferred.functionName).toBe('setDeferredMode')
-    expect(deferred.args).toEqual([15, true])
-
     const impact = decodeFunctionData({
       abi: perpsMarketConfigAbi,
-      data: proposal.innerCalls[2]!.data,
+      data: proposal.innerCalls[1]!.data,
     })
     expect(impact.functionName).toBe('setImpactNotionalBaseUsdc')
     expect(impact.args).toEqual([15, 50n])
 
     const markOracle = decodeFunctionData({
       abi: risexOracleAbi,
-      data: proposal.innerCalls[3]!.data,
+      data: proposal.innerCalls[2]!.data,
     })
-    expect(proposal.innerCalls[3]!.to).toBe(risexOracle)
+    expect(proposal.innerCalls[2]!.to).toBe(risexOracle)
     expect(markOracle.functionName).toBe('configureMarkOracle')
     expect(markOracle.args).toEqual([15, 480, 10, 50])
   })
 
-  it('wraps update, lock, deferred mode, and impact changes in one AccessManager multicall transaction', () => {
+  it('wraps update, lock, and impact changes in one AccessManager multicall transaction', () => {
     const proposal = buildUpdateMarketProposal({
       accessManagerAddress: accessManager,
       perpsAddress: perps,
@@ -105,7 +96,6 @@ describe('market proposal builder', () => {
       marketId: 2,
       perpsConfig: baseConfig,
       lock: true,
-      deferredMode: true,
       impactNotionalBaseUsdc: 100n,
       markOracleConfig: { timeConstantSeconds: 480n, minUpdateInterval: 10n, maxPremiumBps: 50n },
     })
@@ -113,11 +103,10 @@ describe('market proposal builder', () => {
     expect(proposal.innerCalls.map((call) => call.functionName)).toEqual([
       'updateMarketConfig',
       'setMarketLock',
-      'setDeferredMode',
       'setImpactNotionalBaseUsdc',
       'configureMarkOracle',
     ])
-    expect(decodeOuterExecuteCalls(proposal.transaction.data)).toHaveLength(5)
+    expect(decodeOuterExecuteCalls(proposal.transaction.data)).toHaveLength(4)
 
     const lock = decodeFunctionData({
       abi: perpsMarketConfigAbi,

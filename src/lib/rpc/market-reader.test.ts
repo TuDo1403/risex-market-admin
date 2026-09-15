@@ -25,7 +25,6 @@ describe('live market reader', () => {
         matchPriceBandBps: 50n,
       },
       250n,
-      false,
       { timeConstantSeconds: 480n, minUpdateInterval: 10n, maxPremiumBps: 50n },
       {
         name: 'AERO/USD',
@@ -41,7 +40,6 @@ describe('live market reader', () => {
         matchPriceBandBps: 0n,
       },
       50n,
-      true,
       { timeConstantSeconds: 450n, minUpdateInterval: 10n, maxPremiumBps: 30n },
     ])
 
@@ -50,7 +48,6 @@ describe('live market reader', () => {
       perps,
       {
         multicall3Address: '0xcA11bde05977b3631167028862bE2a173976CA11',
-        ordersManagerAddress: '0xE03C1D5081eb2d0E6bFd62A949C5b12eFa44F2cD',
         risexOracleAddress: risexOracle,
       },
     )
@@ -63,7 +60,6 @@ describe('live market reader', () => {
       maxLeverage: 3n,
       maintenanceMarginFactor: 4_500_000_000_000_000_000n,
       impactNotionalBaseUsdc: 50n,
-      deferredSettlement: true,
       markOracleConfig: { timeConstantSeconds: 450n, minUpdateInterval: 10n, maxPremiumBps: 30n },
     })
     expect(readContract).toHaveBeenNthCalledWith(1, expect.objectContaining({ functionName: 'getTotalMarkets' }))
@@ -75,11 +71,9 @@ describe('live market reader', () => {
       contracts: [
         expect.objectContaining({ functionName: 'getMarketConfig', args: [1] }),
         expect.objectContaining({ functionName: 'getImpactNotionalBaseUsdc', args: [1] }),
-        expect.objectContaining({ functionName: 'isDeferredMode', args: [perps, 1] }),
         expect.objectContaining({ functionName: 'getMarkOracleConfig', args: [1] }),
         expect.objectContaining({ functionName: 'getMarketConfig', args: [2] }),
         expect.objectContaining({ functionName: 'getImpactNotionalBaseUsdc', args: [2] }),
-        expect.objectContaining({ functionName: 'isDeferredMode', args: [perps, 2] }),
         expect.objectContaining({ functionName: 'getMarkOracleConfig', args: [2] }),
       ],
     })

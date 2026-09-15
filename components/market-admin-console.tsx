@@ -24,7 +24,7 @@ import { deriveIndexPriceId, deriveMarkPriceId } from "@/src/lib/price-ids";
 import { cn } from "@/src/lib/utils";
 import {
   Activity, AlertTriangle, ArrowRight, Check, ChevronDown, Circle,
-  CircleDot, Copy, ExternalLink, FileJson, Hash, Loader2, Lock,
+  Copy, ExternalLink, FileJson, Hash, Loader2, Lock,
   Plug, Plus, RefreshCw, Search, Sparkles, Terminal, Unlock,
   Wallet, X, Zap,
 } from "lucide-react";
@@ -223,11 +223,6 @@ function StatusPill({ s }: { s: Market["status"] }) {
   return <Chip tone="destructive"><Lock className="h-3 w-3" /> locked</Chip>;
 }
 
-function DeferredPill({ enabled }: { enabled: boolean }) {
-  if (enabled) return <Chip tone="warning"><CircleDot className="h-3 w-3" /> enabled</Chip>;
-  return <Chip tone="muted">sync</Chip>;
-}
-
 function markOracleDisplayValue(m: Market, key: 'markOracleTimeConstantSeconds' | 'markOracleMinUpdateInterval' | 'markOracleMaxPremiumBps', suffix: string) {
   if (!m.markOracleConfigured) {
     return "not configured";
@@ -274,7 +269,7 @@ function MarketsTable({
         <table className="w-full text-left">
           <thead className="bg-background/60 border-b border-border">
             <tr className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">
-              {["id","market","lock","defer settle","maxLev","mmr %","mmrRaw","stepSize","stepPrice","minStep","maxStep","oiLimit","impact $","band %","mark τ","mark min","mark max",""].map(h => (
+              {["id","market","lock","maxLev","mmr %","mmrRaw","stepSize","stepPrice","minStep","maxStep","oiLimit","impact $","band %","mark τ","mark min","mark max",""].map(h => (
                 <th key={h} className="px-2 py-1.5 font-normal whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -282,18 +277,18 @@ function MarketsTable({
           <tbody>
             {state === "loading" && Array.from({ length: 3 }).map((_, i) => (
               <tr key={i} className="border-b border-border/60">
-                {Array.from({ length: 18 }).map((__, j) => (
+                {Array.from({ length: 17 }).map((__, j) => (
                   <td key={j} className="px-2 py-2"><div className="h-3 bg-surface-3 animate-pulse rounded-sm" /></td>
                 ))}
               </tr>
             ))}
             {state === "empty" && (
-              <tr><td colSpan={18} className="text-center py-8 text-muted-foreground font-mono text-[12px]">
+              <tr><td colSpan={17} className="text-center py-8 text-muted-foreground font-mono text-[12px]">
                 No markets on {env}.
               </td></tr>
             )}
             {state === "error" && (
-              <tr><td colSpan={18} className="text-center py-8 text-destructive font-mono text-[12px]">
+              <tr><td colSpan={17} className="text-center py-8 text-destructive font-mono text-[12px]">
                 {error ?? "Failed to read live markets."}
               </td></tr>
             )}
@@ -315,7 +310,6 @@ function MarketsTable({
                   </div>
                 </td>
                 <td className="px-2 py-1.5"><StatusPill s={m.status} /></td>
-                <td className="px-2 py-1.5"><DeferredPill enabled={m.deferredSettlement} /></td>
                 <td className="px-2 py-1.5 data-cell">{m.maxLeverage}x</td>
                 <td className="px-2 py-1.5 data-cell">{m.mmrPct}%</td>
                 <td className="px-2 py-1.5 data-cell text-muted-foreground truncate max-w-[100px]" title={m.mmrRaw}>{m.mmrRaw}</td>
@@ -352,7 +346,6 @@ function emptyEditor() {
     symbol: "",
     quote: QUOTE_SYMBOL,
     status: "unlocked" as Market["status"],
-    deferredSettlement: true,
     maxLeverage: 10,
     mmrPct: "5.0",
     stepSize: "1",
@@ -371,7 +364,6 @@ function emptyEditor() {
 function fromMarket(m: Market): EditorState {
   return {
     symbol: m.symbol, quote: QUOTE_SYMBOL, status: m.status,
-    deferredSettlement: m.deferredSettlement,
     maxLeverage: m.maxLeverage, mmrPct: m.mmrPct,
     stepSize: String(m.stepSize), stepPrice: m.stepPrice,
     minOrderStep: m.minOrderStep, maxOrderStep: m.maxOrderStep,
@@ -389,7 +381,6 @@ function fromTemplate(m: typeof AERO_TEMPLATE): EditorState {
     symbol: m.symbol,
     quote: QUOTE_SYMBOL,
     status: m.status,
-    deferredSettlement: m.deferredSettlement,
     maxLeverage: m.maxLeverage,
     mmrPct: m.mmrPct,
     stepSize: String(m.stepSize),
@@ -492,17 +483,6 @@ function MarketEditor({
                   ))}
                 </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">Deferred settlement</label>
-                <button
-                  type="button"
-                  onClick={() => set("deferredSettlement", !s.deferredSettlement)}
-                  className={cn("w-full h-8 border border-border rounded-sm px-2 font-mono text-[11px] uppercase tracking-wider",
-                    s.deferredSettlement ? "bg-warning/15 text-warning" : "bg-surface-2 text-muted-foreground hover:text-foreground")}
-                >
-                  {s.deferredSettlement ? "enabled" : "synchronous"}
-                </button>
-              </div>
             </div>
 
             {/* Risk */}
@@ -538,7 +518,6 @@ function MarketEditor({
               </div>
               <div>
                 <DiffRow label="status" before={base.status} after={s.status} />
-                <DiffRow label="deferred settlement" before={base.deferredSettlement ? "enabled" : "sync"} after={s.deferredSettlement ? "enabled" : "sync"} />
                 <DiffRow label="maxLeverage" before={`${base.maxLeverage}x`} after={`${s.maxLeverage}x`} />
                 <DiffRow label="mmr %" before={`${base.mmrPct}%`} after={`${s.mmrPct}%`} raw={{ b: base.mmrRaw, a: rawMmr(s.mmrPct) }} />
                 <DiffRow label="minOrderStep" before={base.minOrderStep} after={s.minOrderStep} />
@@ -885,7 +864,6 @@ function buildAtomicProposalForPanel(
         },
         markPriceId: deriveMarkPriceId(state.symbol),
         indexPriceId: deriveIndexPriceId(state.symbol),
-        deferredMode: state.deferredSettlement,
         impactNotionalBaseUsdc: parseRawBigInt(rawImpact(state.impactBaseUsdc)),
         markOracleConfig,
       })
@@ -898,7 +876,6 @@ function buildAtomicProposalForPanel(
           ? { ...perpsConfig, unlocked: base!.status === "unlocked" }
           : undefined,
         lock: base!.status !== state.status ? state.status === "locked" : undefined,
-        deferredMode: base!.deferredSettlement !== state.deferredSettlement ? state.deferredSettlement : undefined,
         impactNotionalBaseUsdc: base!.impactBaseUsdc !== state.impactBaseUsdc ? parseRawBigInt(rawImpact(state.impactBaseUsdc)) : undefined,
         markOracleConfig: sameMarkOracleConfigValues(base!, markOracleConfig) ? undefined : markOracleConfig,
       });
@@ -932,7 +909,6 @@ function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo
       `oiLimit=${state.oiLimitSteps}`,
       `priceBand=${state.priceBandPct}% (${rawPriceBandForPanel(base, state)} raw)`,
     ]},
-    ...(state.deferredSettlement ? [{ fn: "setDeferredMode", required: false, args: [`marketId=NEXT`, "deferred=true"] }] : []),
     { fn: "setImpactNotionalBaseUsdc", required: false, args: [`marketId=NEXT`, `base=${rawImpact(state.impactBaseUsdc)}`] },
     { fn: "configureMarkOracle", required: true, args: [`marketId=NEXT`, ...markOracleArgs] },
   ] : [
@@ -946,7 +922,6 @@ function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo
       `priceBand=${state.priceBandPct}% (${rawPriceBandForPanel(base, state)} raw)`,
     ]}] : []),
     ...(base && base.status !== state.status && (state.status === "locked" || state.status === "unlocked") ? [{ fn: "setMarketLock", required: false, args: [`marketId=${base.id}`, `locked=${state.status === "locked"}`] }] : []),
-    ...(base && base.deferredSettlement !== state.deferredSettlement ? [{ fn: "setDeferredMode", required: false, args: [`marketId=${base.id}`, `deferred=${state.deferredSettlement}`] }] : []),
     ...(base && base.impactBaseUsdc !== state.impactBaseUsdc ? [{ fn: "setImpactNotionalBaseUsdc", required: false, args: [`marketId=${base.id}`, `base=${rawImpact(state.impactBaseUsdc)}`] }] : []),
     ...(showUpdateMarkOracle ? [{ fn: "configureMarkOracle", required: false, args: [`marketId=${base.id}`, ...markOracleArgs] }] : []),
   ];
@@ -1122,7 +1097,6 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
 
     const deployment = getDeploymentForEnv(env);
     readLiveMarkets(getPublicClient(env), deployment.addresses.perps, {
-      ordersManagerAddress: deployment.addresses.ordersManager,
       risexOracleAddress: deployment.addresses.risexOracle,
       multicall3Address: deployment.multicall3Address,
     })

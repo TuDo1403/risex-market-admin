@@ -1,7 +1,7 @@
 import { createPublicClient, http, type Address, type PublicClient } from 'viem'
 
 import type { DeploymentEnvironment } from '@/src/config/deployments'
-import { ordersManagerAbi, perpsMarketConfigAbi, risexOracleAbi } from '@/src/lib/abis'
+import { perpsMarketConfigAbi, risexOracleAbi } from '@/src/lib/abis'
 
 export type MarkOracleConfig = {
   timeConstantSeconds: bigint
@@ -22,7 +22,6 @@ export type PerpsMarketConfig = {
   stepPrice: bigint
   matchPriceBandBps: bigint
   impactNotionalBaseUsdc?: bigint
-  deferredSettlement?: boolean
   markOracleConfig?: MarkOracleConfig
 }
 
@@ -35,7 +34,6 @@ type MulticallClient = ReadContractClient & Pick<PublicClient, 'multicall'>
 
 type ReadLiveMarketsOptions = {
   multicall3Address?: Address
-  ordersManagerAddress?: Address
   risexOracleAddress?: Address
 }
 
@@ -58,81 +56,53 @@ export async function readLiveMarkets(
 
   const marketIds = Array.from({ length: totalMarkets }, (_, index) => index + 1)
 
-  const contracts = marketIds.map((id) => {
-    const baseContracts = [
-      {
-        address: perpsAddress,
-        abi: perpsMarketConfigAbi,
-        functionName: 'getMarketConfig',
-        args: [id],
-      },
-      {
-        address: perpsAddress,
-        abi: perpsMarketConfigAbi,
-        functionName: 'getImpactNotionalBaseUsdc',
-        args: [id],
-      },
-    ]
+  const contracts = marketIds.map((id) => [
+    {
+      address: perpsAddress,
+      abi: perpsMarketConfigAbi,
+      functionName: 'getMarketConfig',
+      args: [id],
+    },
+    {
+      address: perpsAddress,
+      abi: perpsMarketConfigAbi,
+      functionName: 'getImpactNotionalBaseUsdc',
+      args: [id],
+    },
+    ...(options.risexOracleAddress
+      ? [
+          {
+            address: options.risexOracleAddress,
+            abi: risexOracleAbi,
+            functionName: 'getMarkOracleConfig',
+            args: [id],
+          },
+        ]
+      : []),
+  ]).flat()
 
-    if (!options.ordersManagerAddress) {
-      return options.risexOracleAddress
-        ? [
-            ...baseContracts,
-            {
-              address: options.risexOracleAddress,
-              abi: risexOracleAbi,
-              functionName: 'getMarkOracleConfig',
-              args: [id],
-            },
-          ]
-        : baseContracts
-    }
-
-    return [
-      ...baseContracts,
-      {
-        address: options.ordersManagerAddress,
-        abi: ordersManagerAbi,
-        functionName: 'isDeferredMode',
-        args: [perpsAddress, id],
-      },
-      ...(options.risexOracleAddress
-        ? [
-            {
-              address: options.risexOracleAddress,
-              abi: risexOracleAbi,
-              functionName: 'getMarkOracleConfig',
-              args: [id],
-            },
-          ]
-        : []),
-    ]
-  }).flat()
-
+  // allowFailure: false — every selector here exists on all deployments, and this
+  // console builds transactions from these values, so a partial read must raise
+  // rather than quietly render a market with zeroed config.
   const results = await client.multicall({
     contracts,
     allowFailure: false,
     multicallAddress: options.multicall3Address,
   })
 
-  const resultWidth = 2 + (options.ordersManagerAddress ? 1 : 0) + (options.risexOracleAddress ? 1 : 0)
+  const resultWidth = 2 + (options.risexOracleAddress ? 1 : 0)
 
   return marketIds.map((id, index) => {
     const offset = index * resultWidth
-    let resultIndex = offset
     const config = results[offset]
-    resultIndex += 1
-    const impactNotionalBaseUsdc = results[resultIndex] as bigint | number | string
-    resultIndex += 1
-    const deferredSettlement = options.ordersManagerAddress ? Boolean(results[resultIndex++]) : false
-    const markOracleConfig = options.risexOracleAddress ? normalizeMarkOracleConfig(results[resultIndex]) : undefined
+    const impactNotionalBaseUsdc = results[offset + 1] as bigint | number | string
+    const markOracle = options.risexOracleAddress ? results[offset + 2] : undefined
 
     return {
       id,
       ...normalizeMarketConfig(config),
       impactNotionalBaseUsdc: BigInt(impactNotionalBaseUsdc),
-      deferredSettlement,
-      markOracleConfig,
+      markOracleConfig: markOracle === undefined ? undefined : normalizeMarkOracleConfig(markOracle),
     }
   })
 }

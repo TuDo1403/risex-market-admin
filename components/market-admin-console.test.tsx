@@ -257,7 +257,7 @@ describe('MarketAdminConsole', () => {
     expect(screen.getByText(/stored uint64; effective = base × 1e18 × maxLev/i)).toBeInTheDocument()
     expect(screen.getByText(/5% = 50000 raw/i)).toBeInTheDocument()
     expect(screen.getAllByText(textIncludes('raw: 300 raw')).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/setDeferredMode/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/setDeferredMode/i)).not.toBeInTheDocument()
     expect(screen.getAllByText(/configureMarkOracle/i).length).toBeGreaterThan(0)
     expect(await screen.findByText(/index 100000000 · mark 100100000/i)).toBeInTheDocument()
     expect(rpcMocks.readOpenOracleValidation).toHaveBeenCalledWith(
@@ -356,7 +356,6 @@ function market(partial: Partial<Market> & Pick<Market, 'id' | 'symbol'>): Marke
     symbol: partial.symbol,
     quote: partial.quote ?? 'USDC',
     status: partial.status ?? 'unlocked',
-    deferredSettlement: partial.deferredSettlement ?? true,
     maxLeverage: partial.maxLeverage ?? 10,
     mmrPct: partial.mmrPct ?? '5.0',
     mmrRaw,
@@ -392,7 +391,7 @@ const marketsByEnv: Record<EnvKey, Market[]> = {
       mmrRaw: '15000000000000000000',
       markOracleConfigured: false,
     }),
-    market({ id: 5, symbol: 'DOGE', quote: 'USDT', deferredSettlement: true, stepSize: 10, stepPrice: 0.000001 }),
+    market({ id: 5, symbol: 'DOGE', quote: 'USDT', stepSize: 10, stepPrice: 0.000001 }),
   ],
   testnet: [
     market({ id: 1, symbol: 'ETH', maxLeverage: 50 }),

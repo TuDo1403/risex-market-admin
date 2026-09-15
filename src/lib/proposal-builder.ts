@@ -32,7 +32,6 @@ export type OpenMarketProposalInput = {
   bookConfig: OrdersBookConfig
   markPriceId: Hex
   indexPriceId: Hex
-  deferredMode?: boolean
   impactNotionalBaseUsdc?: bigint
   markOracleConfig?: MarkOracleConfig
 }
@@ -44,7 +43,6 @@ export type UpdateMarketProposalInput = {
   marketId: number
   perpsConfig?: PerpsMarketConfig
   lock?: boolean
-  deferredMode?: boolean
   impactNotionalBaseUsdc?: bigint
   markOracleConfig?: MarkOracleConfig
 }
@@ -85,19 +83,6 @@ export function buildOpenMarketProposal(input: OpenMarketProposalInput): MarketP
       }),
     },
   ]
-
-  if (input.deferredMode) {
-    innerCalls.push({
-      to: input.perpsAddress,
-      value: '0',
-      functionName: 'setDeferredMode',
-      data: encodeFunctionData({
-        abi: perpsMarketConfigAbi,
-        functionName: 'setDeferredMode',
-        args: [input.nextMarketId, true],
-      }),
-    })
-  }
 
   if (input.impactNotionalBaseUsdc !== undefined) {
     innerCalls.push({
@@ -147,19 +132,6 @@ export function buildUpdateMarketProposal(input: UpdateMarketProposalInput): Mar
         abi: perpsMarketConfigAbi,
         functionName: 'setMarketLock',
         args: [input.marketId, !input.lock],
-      }),
-    })
-  }
-
-  if (input.deferredMode !== undefined) {
-    innerCalls.push({
-      to: input.perpsAddress,
-      value: '0',
-      functionName: 'setDeferredMode',
-      data: encodeFunctionData({
-        abi: perpsMarketConfigAbi,
-        functionName: 'setDeferredMode',
-        args: [input.marketId, input.deferredMode],
       }),
     })
   }
