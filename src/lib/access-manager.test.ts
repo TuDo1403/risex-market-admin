@@ -13,7 +13,7 @@ describe('AccessManager selector checks', () => {
     const readContract = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     const calls: InnerCall[] = [
       { to: perps, value: '0', data: '0x264317e8' as const, functionName: 'openMarket' },
-      { to: perps, value: '0', data: '0xd5a532d5' as const, functionName: 'setDeferredMode' },
+      { to: perps, value: '0', data: '0x9f919480' as const, functionName: 'setImpactNotionalBaseUsdc' },
     ]
 
     const result = await checkAccessForCalls({ readContract }, accessManager, caller, calls)
@@ -21,7 +21,7 @@ describe('AccessManager selector checks', () => {
     expect(result.allowed).toBe(false)
     expect(result.results).toEqual([
       expect.objectContaining({ functionName: 'openMarket', selector: '0x264317e8', allowed: true }),
-      expect.objectContaining({ functionName: 'setDeferredMode', selector: '0xd5a532d5', allowed: false }),
+      expect.objectContaining({ functionName: 'setImpactNotionalBaseUsdc', selector: '0x9f919480', allowed: false }),
     ])
     expect(readContract).toHaveBeenNthCalledWith(
       1,

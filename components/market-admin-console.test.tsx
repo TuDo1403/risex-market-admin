@@ -151,21 +151,6 @@ describe('MarketAdminConsole', () => {
     expect(await screen.findByText(/index 100000000 · mark 100100000/i)).toBeInTheDocument()
   })
 
-  it('marks deferred settlement n/a and disables the toggle when the deployment lacks it', async () => {
-    const user = userEvent.setup()
-    render(<MarketAdminConsole initialEnv="mainnet" />)
-
-    const row = (await screen.findByText('ETH/USDC')).closest('tr')
-    expect(row).not.toBeNull()
-    expect(within(row!).getByText('n/a')).toBeInTheDocument()
-
-    await user.dblClick(await screen.findByText('ETH/USDC'))
-
-    const toggle = screen.getByRole('button', { name: /unsupported/i })
-    expect(toggle).toBeDisabled()
-    expect(screen.queryByText(/setDeferredMode/i)).not.toBeInTheDocument()
-  })
-
   it('reports unconfigured mark oracle rows instead of editable defaults', async () => {
     render(<MarketAdminConsole initialEnv="staging" />)
 
@@ -272,7 +257,7 @@ describe('MarketAdminConsole', () => {
     expect(screen.getByText(/stored uint64; effective = base × 1e18 × maxLev/i)).toBeInTheDocument()
     expect(screen.getByText(/5% = 50000 raw/i)).toBeInTheDocument()
     expect(screen.getAllByText(textIncludes('raw: 300 raw')).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/setDeferredMode/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/setDeferredMode/i)).not.toBeInTheDocument()
     expect(screen.getAllByText(/configureMarkOracle/i).length).toBeGreaterThan(0)
     expect(await screen.findByText(/index 100000000 · mark 100100000/i)).toBeInTheDocument()
     expect(rpcMocks.readOpenOracleValidation).toHaveBeenCalledWith(
@@ -371,8 +356,6 @@ function market(partial: Partial<Market> & Pick<Market, 'id' | 'symbol'>): Marke
     symbol: partial.symbol,
     quote: partial.quote ?? 'USDC',
     status: partial.status ?? 'unlocked',
-    deferredSettlement: partial.deferredSettlement ?? true,
-    deferredSettlementSupported: partial.deferredSettlementSupported ?? true,
     maxLeverage: partial.maxLeverage ?? 10,
     mmrPct: partial.mmrPct ?? '5.0',
     mmrRaw,
@@ -408,7 +391,7 @@ const marketsByEnv: Record<EnvKey, Market[]> = {
       mmrRaw: '15000000000000000000',
       markOracleConfigured: false,
     }),
-    market({ id: 5, symbol: 'DOGE', quote: 'USDT', deferredSettlement: true, stepSize: 10, stepPrice: 0.000001 }),
+    market({ id: 5, symbol: 'DOGE', quote: 'USDT', stepSize: 10, stepPrice: 0.000001 }),
   ],
   testnet: [
     market({ id: 1, symbol: 'ETH', maxLeverage: 50 }),
@@ -416,10 +399,9 @@ const marketsByEnv: Record<EnvKey, Market[]> = {
     market({ id: 3, symbol: 'SOL', maxLeverage: 30 }),
     market({ id: 4, symbol: 'PEPE', stepSize: 1000, stepPrice: 0.00000001 }),
   ],
-  // RISE mainnet runs an OrdersManager without isDeferredMode / setDeferredMode
   mainnet: [
-    market({ id: 1, symbol: 'ETH', maxLeverage: 25, deferredSettlement: false, deferredSettlementSupported: false }),
-    market({ id: 2, symbol: 'BTC', maxLeverage: 25, deferredSettlement: false, deferredSettlementSupported: false }),
-    market({ id: 3, symbol: 'SOL', maxLeverage: 20, deferredSettlement: false, deferredSettlementSupported: false }),
+    market({ id: 1, symbol: 'ETH', maxLeverage: 25 }),
+    market({ id: 2, symbol: 'BTC', maxLeverage: 25 }),
+    market({ id: 3, symbol: 'SOL', maxLeverage: 20 }),
   ],
 }

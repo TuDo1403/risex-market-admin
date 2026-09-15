@@ -1,7 +1,7 @@
 // src/lib/abis.test.ts
 import { describe, expect, it } from 'vitest'
-import { toFunctionSelector, getAbiItem } from 'viem'
-import { perpsMarketConfigAbi, ordersManagerAbi } from './abis'
+import { getAbiItem } from 'viem'
+import { perpsMarketConfigAbi } from './abis'
 
 describe('contract abis', () => {
   it('getTotalMarkets returns uint256', () => {
@@ -19,12 +19,5 @@ describe('contract abis', () => {
   it('setMarketLock second arg is the unlocked flag', () => {
     const item = getAbiItem({ abi: perpsMarketConfigAbi, name: 'setMarketLock' })
     expect(item!.inputs[1].name).toBe('unlocked')
-  })
-
-  it('ordersManager exposes isDeferredMode(address,uint16)->bool', () => {
-    const item = getAbiItem({ abi: ordersManagerAbi, name: 'isDeferredMode' })
-    expect(item).toBeDefined()
-    expect(item!.inputs.map((i) => i.type)).toEqual(['address', 'uint16'])
-    expect(toFunctionSelector(item!)).toBe(toFunctionSelector('isDeferredMode(address,uint16)'))
   })
 })

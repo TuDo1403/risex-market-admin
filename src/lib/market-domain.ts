@@ -31,8 +31,6 @@ export type Market = {
   symbol: string;            // e.g. ETH
   quote: string;             // USDC
   status: MarketStatus;
-  deferredSettlement: boolean;
-  deferredSettlementSupported: boolean; // false when the deployment has no deferred-mode support
   maxLeverage: number;       // x
   mmrPct: string;            // % decimal string, no JS float math for raw conversion
   mmrRaw: string;            // raw maintenanceMarginFactor
@@ -59,8 +57,6 @@ const mk = (m: Partial<Market> & { id: number; symbol: string }): Market => {
   const mmrPct = m.mmrPct ?? "2.5";
   return {
     status: "unlocked",
-    deferredSettlement: true,
-    deferredSettlementSupported: true,
     maxLeverage: 20,
     mmrPct,
     mmrRaw: rawMmr(mmrPct),
@@ -95,7 +91,7 @@ export const MARKETS_BY_ENV: Record<EnvKey, Market[]> = {
     mk({ id: 2, symbol: "BTC",  maxLeverage: 25, mmrPct: "1.8",  stepSize: 0.0001, stepPrice: 0.1,    minOrderStep: 1, maxOrderStep: 200000, oiLimitSteps: 3_000_000, impactBaseUsdc: 500, priceBandBps: 120 }),
     mk({ id: 3, symbol: "SOL",  maxLeverage: 20, mmrPct: "2.5",  stepSize: 0.01,   stepPrice: 0.001,  minOrderStep: 5, maxOrderStep: 300000, oiLimitSteps: 4_000_000, impactBaseUsdc: 120, priceBandBps: 200 }),
     mk({ id: 4, symbol: "ARB",  maxLeverage: 15, mmrPct: "3.0",  stepSize: 1,      stepPrice: 0.00001, minOrderStep: 50, maxOrderStep: 500000, oiLimitSteps: 2_000_000, impactBaseUsdc: 60, priceBandBps: 250, status: "locked" }),
-    mk({ id: 5, symbol: "DOGE", maxLeverage: 10, mmrPct: "5.0",  stepSize: 10,     stepPrice: 0.000001,minOrderStep: 100, maxOrderStep: 1_000_000, oiLimitSteps: 6_000_000, impactBaseUsdc: 40, priceBandBps: 350, deferredSettlement: true }),
+    mk({ id: 5, symbol: "DOGE", maxLeverage: 10, mmrPct: "5.0",  stepSize: 10,     stepPrice: 0.000001,minOrderStep: 100, maxOrderStep: 1_000_000, oiLimitSteps: 6_000_000, impactBaseUsdc: 40, priceBandBps: 350 }),
   ],
   testnet: [
     mk({ id: 1, symbol: "ETH",  maxLeverage: 50, mmrPct: "1.0",  stepSize: 0.001, stepPrice: 0.01,    minOrderStep: 1, maxOrderStep: 500000, oiLimitSteps: 5_000_000, impactBaseUsdc: 100, priceBandBps: 300 }),
@@ -122,7 +118,6 @@ export const AERO_TEMPLATE = {
   markOracleMinUpdateInterval: DEFAULT_MARK_ORACLE_CONFIG.minUpdateInterval,
   markOracleMaxPremiumBps: DEFAULT_MARK_ORACLE_CONFIG.maxPremiumBps,
   status: "unlocked" as MarketStatus,
-  deferredSettlement: true,
 };
 
 // Helpers

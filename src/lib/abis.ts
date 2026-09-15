@@ -117,16 +117,6 @@ export const perpsMarketConfigAbi = [
   },
   {
     type: 'function',
-    name: 'setDeferredMode',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'marketId', type: 'uint16' },
-      { name: 'enabled', type: 'bool' },
-    ],
-    outputs: [],
-  },
-  {
-    type: 'function',
     name: 'setImpactNotionalBaseUsdc',
     stateMutability: 'nonpayable',
     inputs: [
@@ -165,19 +155,6 @@ export const accessManagerAbi = [
     stateMutability: 'payable',
     inputs: [{ name: 'data', type: 'bytes[]' }],
     outputs: [{ name: 'results', type: 'bytes[]' }],
-  },
-] as const
-
-export const ordersManagerAbi = [
-  {
-    type: 'function',
-    name: 'isDeferredMode',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'protocol', type: 'address' },
-      { name: 'marketId', type: 'uint16' },
-    ],
-    outputs: [{ name: '', type: 'bool' }],
   },
 ] as const
 

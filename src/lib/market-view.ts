@@ -25,8 +25,6 @@ export function liveMarketToDisplayMarket(live: LiveMarket): Market {
     symbol: baseFromName || live.name,
     quote: QUOTE_SYMBOL,
     status: live.unlocked ? 'unlocked' : 'locked',
-    deferredSettlement: live.deferredSettlement ?? false,
-    deferredSettlementSupported: live.deferredSettlement !== undefined,
     maxLeverage: Number(live.maxLeverage),
     mmrPct: mmrPercent,
     mmrRaw: live.maintenanceMarginFactor.toString(),

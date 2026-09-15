@@ -33,7 +33,6 @@ describe('live market display adapter', () => {
       symbol: 'AERO',
       quote: 'USDC',
       status: 'unlocked',
-      deferredSettlement: false,
       maxLeverage: 3,
       mmrPct: '22.222222222222222222',
       mmrRaw: '4500000000000000000',
@@ -72,28 +71,6 @@ describe('live market display adapter', () => {
 
     expect(market.status).toBe('locked')
     expect(market.mmrRaw).toBe('50000000000000000000')
-  })
-
-  it('maps deferred settlement independently from market lock status', () => {
-    const market = liveMarketToDisplayMarket({
-      id: 2,
-      name: 'ETH/USD',
-      quote,
-      unlocked: true,
-      maxLeverage: 25n,
-      maintenanceMarginFactor: 50_000_000_000_000_000_000n,
-      minOrderStep: 1n,
-      maxOrderStep: 500_000n,
-      oiLimitSteps: 5_000_000n,
-      stepSize: 1_000_000_000_000_000n,
-      stepPrice: 1_000_000n,
-      matchPriceBandBps: 150n,
-      impactNotionalBaseUsdc: 250n,
-      deferredSettlement: true,
-    })
-
-    expect(market.status).toBe('unlocked')
-    expect(market.deferredSettlement).toBe(true)
   })
 
   it('prefills default editable mark oracle values when a live market has no configured mark oracle', () => {

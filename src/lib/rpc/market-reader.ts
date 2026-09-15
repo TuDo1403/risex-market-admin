@@ -1,7 +1,7 @@
 import { createPublicClient, http, type Address, type PublicClient } from 'viem'
 
 import type { DeploymentEnvironment } from '@/src/config/deployments'
-import { ordersManagerAbi, perpsMarketConfigAbi, risexOracleAbi } from '@/src/lib/abis'
+import { perpsMarketConfigAbi, risexOracleAbi } from '@/src/lib/abis'
 
 export type MarkOracleConfig = {
   timeConstantSeconds: bigint
@@ -22,7 +22,6 @@ export type PerpsMarketConfig = {
   stepPrice: bigint
   matchPriceBandBps: bigint
   impactNotionalBaseUsdc?: bigint
-  deferredSettlement?: boolean
   markOracleConfig?: MarkOracleConfig
 }
 
@@ -35,7 +34,6 @@ type MulticallClient = ReadContractClient & Pick<PublicClient, 'multicall'>
 
 type ReadLiveMarketsOptions = {
   multicall3Address?: Address
-  ordersManagerAddress?: Address
   risexOracleAddress?: Address
 }
 
@@ -58,76 +56,46 @@ export async function readLiveMarkets(
 
   const marketIds = Array.from({ length: totalMarkets }, (_, index) => index + 1)
 
-  const contracts = marketIds.map((id) => {
-    const baseContracts = [
-      {
-        address: perpsAddress,
-        abi: perpsMarketConfigAbi,
-        functionName: 'getMarketConfig',
-        args: [id],
-      },
-      {
-        address: perpsAddress,
-        abi: perpsMarketConfigAbi,
-        functionName: 'getImpactNotionalBaseUsdc',
-        args: [id],
-      },
-    ]
+  const contracts = marketIds.map((id) => [
+    {
+      address: perpsAddress,
+      abi: perpsMarketConfigAbi,
+      functionName: 'getMarketConfig',
+      args: [id],
+    },
+    {
+      address: perpsAddress,
+      abi: perpsMarketConfigAbi,
+      functionName: 'getImpactNotionalBaseUsdc',
+      args: [id],
+    },
+    ...(options.risexOracleAddress
+      ? [
+          {
+            address: options.risexOracleAddress,
+            abi: risexOracleAbi,
+            functionName: 'getMarkOracleConfig',
+            args: [id],
+          },
+        ]
+      : []),
+  ]).flat()
 
-    if (!options.ordersManagerAddress) {
-      return options.risexOracleAddress
-        ? [
-            ...baseContracts,
-            {
-              address: options.risexOracleAddress,
-              abi: risexOracleAbi,
-              functionName: 'getMarkOracleConfig',
-              args: [id],
-            },
-          ]
-        : baseContracts
-    }
-
-    return [
-      ...baseContracts,
-      {
-        address: options.ordersManagerAddress,
-        abi: ordersManagerAbi,
-        functionName: 'isDeferredMode',
-        args: [perpsAddress, id],
-      },
-      ...(options.risexOracleAddress
-        ? [
-            {
-              address: options.risexOracleAddress,
-              abi: risexOracleAbi,
-              functionName: 'getMarkOracleConfig',
-              args: [id],
-            },
-          ]
-        : []),
-    ]
-  }).flat()
-
-  // allowFailure: older deployments (RISE testnet/mainnet today) lack isDeferredMode
-  // and getMarkOracleConfig; a single revert must not blank the whole market list.
+  // allowFailure: deployments drift, and a function missing on one of them
+  // (getMarkOracleConfig on older oracles) must not blank the whole market list.
   const results = await client.multicall({
     contracts,
     allowFailure: true,
     multicallAddress: options.multicall3Address,
   })
 
-  const resultWidth = 2 + (options.ordersManagerAddress ? 1 : 0) + (options.risexOracleAddress ? 1 : 0)
+  const resultWidth = 2 + (options.risexOracleAddress ? 1 : 0)
 
   return marketIds.map((id, index) => {
     const offset = index * resultWidth
-    let resultIndex = offset
     const config = unwrap(results[offset])
-    resultIndex += 1
-    const impactNotionalBaseUsdc = unwrap(results[resultIndex]) as bigint | number | string | undefined
-    resultIndex += 1
-    const deferred = options.ordersManagerAddress ? unwrap(results[resultIndex++]) : undefined
-    const markOracle = options.risexOracleAddress ? unwrap(results[resultIndex]) : undefined
+    const impactNotionalBaseUsdc = unwrap(results[offset + 1]) as bigint | number | string | undefined
+    const markOracle = options.risexOracleAddress ? unwrap(results[offset + 2]) : undefined
 
     if (config === undefined) {
       throw new Error(`failed to read market config for market ${id}`)
@@ -137,7 +105,6 @@ export async function readLiveMarkets(
       id,
       ...normalizeMarketConfig(config),
       impactNotionalBaseUsdc: impactNotionalBaseUsdc === undefined ? undefined : BigInt(impactNotionalBaseUsdc),
-      deferredSettlement: deferred === undefined ? undefined : Boolean(deferred),
       markOracleConfig: markOracle === undefined ? undefined : normalizeMarkOracleConfig(markOracle),
     }
   })
