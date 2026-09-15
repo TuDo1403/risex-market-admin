@@ -173,13 +173,16 @@ function EnvSwitcher({ env, setEnv }: { env: EnvKey; setEnv: (e: EnvKey) => void
 
 /* -------------------------------- Header ------------------------------- */
 
-function Header({ env, setEnv }: {
-  env: EnvKey; setEnv: (e: EnvKey) => void;
+function Header({ env, setEnv, safeInfo }: {
+  env: EnvKey; setEnv: (e: EnvKey) => void; safeInfo: SafeAppInfo | null;
 }) {
   const cfg = ENVS.find(e => e.key === env)!;
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
+  // The Safe connector only has a provider inside a Safe App iframe, and injected
+  // is usually absent there, so pick by what detectSafeApp already told us.
+  const connector = (safeInfo && connectors.find(c => c.id === "safe")) || connectors[0];
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 sm:px-4 h-auto py-2 sm:h-12 sm:py-0">
@@ -203,8 +206,8 @@ function Header({ env, setEnv }: {
               <Wallet className="h-3.5 w-3.5 text-primary" /><span className="font-mono text-[11px]">{shortAddress(address)}</span>
             </button>
           ) : (
-            <Btn variant="outline" size="sm" disabled={!connectors[0]} onClick={() => connectors[0] && connect({ connector: connectors[0] })}>
-              <Plug className="h-3 w-3" /> Connect
+            <Btn variant="outline" size="sm" disabled={!connector} onClick={() => connector && connect({ connector })}>
+              <Plug className="h-3 w-3" /> Connect{safeInfo ? " Safe" : ""}
             </Btn>
           )}
           <EnvSwitcher env={env} setEnv={setEnv} />
@@ -1138,7 +1141,7 @@ export function MarketAdminConsole({ initialEnv = "staging" }: { initialEnv?: En
 
   return (
     <div className="min-h-screen bg-background bg-grid">
-      <Header env={env} setEnv={setEnv} />
+      <Header env={env} setEnv={setEnv} safeInfo={safeInfo} />
 
       {/* Status bar */}
       <div className="border-b border-border bg-surface/60">

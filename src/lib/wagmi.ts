@@ -1,6 +1,6 @@
 import { defineChain } from 'viem'
 import { createConfig, http } from 'wagmi'
-import { injected } from 'wagmi/connectors'
+import { injected, safe } from 'wagmi/connectors'
 
 import {
   getDeploymentForEnv,
@@ -35,7 +35,10 @@ export const riseMainnet = defineChain({
 
 export const wagmiConfig = createConfig({
   chains: [riseTestnet, riseMainnet],
-  connectors: [injected()],
+  // injected stays first so a plain browser keeps its existing behaviour; the Safe
+  // connector only yields a provider inside a Safe App iframe. Its getInfo timeout
+  // defaults to 10ms, which is tight for a real Safe — matched to detectSafeApp.
+  connectors: [injected(), safe({ unstable_getInfoTimeout: 500 })],
   transports: {
     [riseTestnet.id]: http(TESTNET_RPC_URL),
     [riseMainnet.id]: http(MAINNET_RPC_URL),
