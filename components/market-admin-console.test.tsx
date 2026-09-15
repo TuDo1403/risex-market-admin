@@ -8,7 +8,9 @@ import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
 
 const hookState = vi.hoisted(() => ({
   address: null as string | null,
-  connector: { id: 'mock', name: 'Mock connector', type: 'mock' },
+  connector: { id: 'injected', name: 'Injected', type: 'injected' },
+  safeConnector: { id: 'safe', name: 'Safe', type: 'safe' },
+  connect: vi.fn(),
   sendTransaction: vi.fn(),
   sendTransactionAsync: vi.fn(),
   switchChainAsync: vi.fn(),
@@ -32,8 +34,8 @@ vi.mock('wagmi', () => ({
   }),
   useChainId: () => hookState.chainId,
   useConnect: () => ({
-    connectors: [hookState.connector],
-    connect: vi.fn(),
+    connectors: [hookState.connector, hookState.safeConnector],
+    connect: hookState.connect,
   }),
   useDisconnect: () => ({
     disconnect: vi.fn(() => {
@@ -61,6 +63,16 @@ vi.mock('@/src/lib/market-view', () => ({
   liveMarketToDisplayMarket: (market: Market) => market,
 }))
 
+const safeMocks = vi.hoisted(() => ({
+  detectSafeApp: vi.fn(),
+  submitSafeAppTransaction: vi.fn(),
+}))
+
+vi.mock('@/src/lib/safe-app', () => ({
+  detectSafeApp: safeMocks.detectSafeApp,
+  submitSafeAppTransaction: safeMocks.submitSafeAppTransaction,
+}))
+
 vi.mock('@/src/lib/rpc/market-reader', () => ({
   readLiveMarkets: rpcMocks.readLiveMarkets,
 }))
@@ -78,6 +90,10 @@ describe('MarketAdminConsole', () => {
   beforeEach(() => {
     hookState.address = null
     hookState.chainId = 1
+    hookState.connect.mockReset()
+    safeMocks.detectSafeApp.mockReset()
+    safeMocks.detectSafeApp.mockResolvedValue(null)
+    safeMocks.submitSafeAppTransaction.mockReset()
     hookState.sendTransaction.mockReset()
     hookState.sendTransactionAsync.mockReset()
     hookState.sendTransactionAsync.mockResolvedValue('0xabc')
@@ -149,6 +165,25 @@ describe('MarketAdminConsole', () => {
     expect(screen.queryByText(/stepSize=/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/stepPrice=/i)).not.toBeInTheDocument()
     expect(await screen.findByText(/index 100000000 · mark 100100000/i)).toBeInTheDocument()
+  })
+
+  it('connects through the injected connector in a plain browser', async () => {
+    const user = userEvent.setup()
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.click(await screen.findByRole('button', { name: /^connect$/i }))
+
+    expect(hookState.connect).toHaveBeenCalledWith({ connector: hookState.connector })
+  })
+
+  it('connects through the Safe connector when running as a Safe App', async () => {
+    const user = userEvent.setup()
+    safeMocks.detectSafeApp.mockResolvedValue({ safeAddress: '0x9953E4D18400Fc15125c27c3d0C83BE38D561d36', chainId: 11155931 })
+    render(<MarketAdminConsole initialEnv="staging" />)
+
+    await user.click(await screen.findByRole('button', { name: /connect safe/i }))
+
+    expect(hookState.connect).toHaveBeenCalledWith({ connector: hookState.safeConnector })
   })
 
   it('reports unconfigured mark oracle rows instead of editable defaults', async () => {
