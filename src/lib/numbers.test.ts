@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   formatRawDecimal,
   maintenanceMarginFactorToMmrPercent,
-  mmrPercentToMaintenanceMarginFactor,
   parseBps,
   parseDecimalToRaw,
   parseImpactBaseUsdc,
@@ -26,12 +25,6 @@ describe('exact numeric conversions', () => {
     expect(formatRawDecimal(4_500_000_000_000_000_000n, 18)).toBe('4.5')
     expect(formatRawDecimal(1_000n, 8)).toBe('0.00001')
     expect(formatRawDecimal(200_000n, 0)).toBe('200000')
-  })
-
-  it('converts MMR percent to maintenance margin factor exactly for the AERO listing', () => {
-    expect(mmrPercentToMaintenanceMarginFactor('22.222222222222222222')).toBe(
-      4_500_000_000_000_000_000n,
-    )
   })
 
   it('converts maintenance margin factor back to a user-facing MMR percent', () => {

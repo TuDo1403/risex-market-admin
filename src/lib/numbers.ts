@@ -42,16 +42,6 @@ export function formatRawDecimal(raw: bigint, decimals: number): string {
   return `${integer}.${fraction.toString().padStart(decimals, '0').replace(/0+$/, '')}`
 }
 
-export function mmrPercentToMaintenanceMarginFactor(percent: string): bigint {
-  const percentRaw = parseDecimalToRaw(percent, 18)
-  if (percentRaw === 0n) {
-    throw new Error('MMR percent must be greater than zero')
-  }
-
-  const numerator = 100n * WAD * WAD
-  return numerator / percentRaw
-}
-
 export function maintenanceMarginFactorToMmrPercent(
   maintenanceMarginFactor: bigint,
   decimals = 18,

@@ -1,6 +1,6 @@
 // RISEx domain types, demo fixtures, and raw/friendly converters.
 
-import { formatRawDecimal, mmrPercentToMaintenanceMarginFactor, parseDecimalToRaw } from "./numbers";
+import { formatRawDecimal, maintenanceMarginFactorToMmrPercent, parseDecimalToRaw } from "./numbers";
 import { getDeploymentForEnv } from "@/src/config/deployments";
 
 export type EnvKey = "testnet" | "staging" | "mainnet";
@@ -32,8 +32,9 @@ export type Market = {
   quote: string;             // USDC
   status: MarketStatus;
   maxLeverage: number;       // x
-  mmrPct: string;            // % decimal string, no JS float math for raw conversion
-  mmrRaw: string;            // raw maintenanceMarginFactor
+  mmr: string;               // maintenance margin the contract stores, as a ×1e18 decimal string
+  mmrRaw: string;            // raw maintenanceMarginFactor (what is sent on-chain)
+  mmrPct: string;            // derived liquidation ratio, reference only
   stepSize: string | number; // token units (friendly); strings preserve exact 18-decimal values
   stepSizeRaw: string;       // raw token base units
   stepPrice: number;         // quote units (friendly) per step
@@ -54,12 +55,13 @@ export type Market = {
 const mk = (m: Partial<Market> & { id: number; symbol: string }): Market => {
   const stepSize = m.stepSize ?? 1;
   const stepPrice = m.stepPrice ?? 0.00001;
-  const mmrPct = m.mmrPct ?? "2.5";
+  const mmr = m.mmr ?? "40";
   return {
     status: "unlocked",
     maxLeverage: 20,
-    mmrPct,
-    mmrRaw: rawMmr(mmrPct),
+    mmr,
+    mmrRaw: rawMmr(mmr),
+    mmrPct: mmrRatioPct(rawMmr(mmr)),
     stepSize,
     stepSizeRaw: rawStepSize(stepSize),
     stepPrice,
@@ -82,22 +84,22 @@ const mk = (m: Partial<Market> & { id: number; symbol: string }): Market => {
 
 export const MARKETS_BY_ENV: Record<EnvKey, Market[]> = {
   mainnet: [
-    mk({ id: 1, symbol: "ETH",  maxLeverage: 25, mmrPct: "2.0",  stepSize: 0.001, stepPrice: 0.01,    minOrderStep: 1, maxOrderStep: 500000, oiLimitSteps: 5_000_000, impactBaseUsdc: 250, priceBandBps: 150 }),
-    mk({ id: 2, symbol: "BTC",  maxLeverage: 25, mmrPct: "1.8",  stepSize: 0.0001, stepPrice: 0.1,    minOrderStep: 1, maxOrderStep: 200000, oiLimitSteps: 3_000_000, impactBaseUsdc: 500, priceBandBps: 120 }),
-    mk({ id: 3, symbol: "SOL",  maxLeverage: 20, mmrPct: "2.5",  stepSize: 0.01,   stepPrice: 0.001,  minOrderStep: 5, maxOrderStep: 300000, oiLimitSteps: 4_000_000, impactBaseUsdc: 120, priceBandBps: 200 }),
+    mk({ id: 1, symbol: "ETH",  maxLeverage: 25, mmr: "50",  stepSize: 0.001, stepPrice: 0.01,    minOrderStep: 1, maxOrderStep: 500000, oiLimitSteps: 5_000_000, impactBaseUsdc: 250, priceBandBps: 150 }),
+    mk({ id: 2, symbol: "BTC",  maxLeverage: 25, mmr: "55",  stepSize: 0.0001, stepPrice: 0.1,    minOrderStep: 1, maxOrderStep: 200000, oiLimitSteps: 3_000_000, impactBaseUsdc: 500, priceBandBps: 120 }),
+    mk({ id: 3, symbol: "SOL",  maxLeverage: 20, mmr: "40",  stepSize: 0.01,   stepPrice: 0.001,  minOrderStep: 5, maxOrderStep: 300000, oiLimitSteps: 4_000_000, impactBaseUsdc: 120, priceBandBps: 200 }),
   ],
   staging: [
-    mk({ id: 1, symbol: "ETH",  maxLeverage: 25, mmrPct: "2.0",  stepSize: 0.001, stepPrice: 0.01,    minOrderStep: 1, maxOrderStep: 500000, oiLimitSteps: 5_000_000, impactBaseUsdc: 250, priceBandBps: 150 }),
-    mk({ id: 2, symbol: "BTC",  maxLeverage: 25, mmrPct: "1.8",  stepSize: 0.0001, stepPrice: 0.1,    minOrderStep: 1, maxOrderStep: 200000, oiLimitSteps: 3_000_000, impactBaseUsdc: 500, priceBandBps: 120 }),
-    mk({ id: 3, symbol: "SOL",  maxLeverage: 20, mmrPct: "2.5",  stepSize: 0.01,   stepPrice: 0.001,  minOrderStep: 5, maxOrderStep: 300000, oiLimitSteps: 4_000_000, impactBaseUsdc: 120, priceBandBps: 200 }),
-    mk({ id: 4, symbol: "ARB",  maxLeverage: 15, mmrPct: "3.0",  stepSize: 1,      stepPrice: 0.00001, minOrderStep: 50, maxOrderStep: 500000, oiLimitSteps: 2_000_000, impactBaseUsdc: 60, priceBandBps: 250, status: "locked" }),
-    mk({ id: 5, symbol: "DOGE", maxLeverage: 10, mmrPct: "5.0",  stepSize: 10,     stepPrice: 0.000001,minOrderStep: 100, maxOrderStep: 1_000_000, oiLimitSteps: 6_000_000, impactBaseUsdc: 40, priceBandBps: 350 }),
+    mk({ id: 1, symbol: "ETH",  maxLeverage: 25, mmr: "50",  stepSize: 0.001, stepPrice: 0.01,    minOrderStep: 1, maxOrderStep: 500000, oiLimitSteps: 5_000_000, impactBaseUsdc: 250, priceBandBps: 150 }),
+    mk({ id: 2, symbol: "BTC",  maxLeverage: 25, mmr: "55",  stepSize: 0.0001, stepPrice: 0.1,    minOrderStep: 1, maxOrderStep: 200000, oiLimitSteps: 3_000_000, impactBaseUsdc: 500, priceBandBps: 120 }),
+    mk({ id: 3, symbol: "SOL",  maxLeverage: 20, mmr: "40",  stepSize: 0.01,   stepPrice: 0.001,  minOrderStep: 5, maxOrderStep: 300000, oiLimitSteps: 4_000_000, impactBaseUsdc: 120, priceBandBps: 200 }),
+    mk({ id: 4, symbol: "ARB",  maxLeverage: 15, mmr: "33",  stepSize: 1,      stepPrice: 0.00001, minOrderStep: 50, maxOrderStep: 500000, oiLimitSteps: 2_000_000, impactBaseUsdc: 60, priceBandBps: 250, status: "locked" }),
+    mk({ id: 5, symbol: "DOGE", maxLeverage: 10, mmr: "20",  stepSize: 10,     stepPrice: 0.000001,minOrderStep: 100, maxOrderStep: 1_000_000, oiLimitSteps: 6_000_000, impactBaseUsdc: 40, priceBandBps: 350 }),
   ],
   testnet: [
-    mk({ id: 1, symbol: "ETH",  maxLeverage: 50, mmrPct: "1.0",  stepSize: 0.001, stepPrice: 0.01,    minOrderStep: 1, maxOrderStep: 500000, oiLimitSteps: 5_000_000, impactBaseUsdc: 100, priceBandBps: 300 }),
-    mk({ id: 2, symbol: "BTC",  maxLeverage: 50, mmrPct: "1.0",  stepSize: 0.0001, stepPrice: 0.1,    minOrderStep: 1, maxOrderStep: 200000, oiLimitSteps: 3_000_000, impactBaseUsdc: 200, priceBandBps: 300 }),
-    mk({ id: 3, symbol: "SOL",  maxLeverage: 30, mmrPct: "2.0",  stepSize: 0.01,   stepPrice: 0.001,  minOrderStep: 5, maxOrderStep: 300000, oiLimitSteps: 4_000_000, impactBaseUsdc: 80, priceBandBps: 300 }),
-    mk({ id: 4, symbol: "PEPE", maxLeverage: 10, mmrPct: "8.0",  stepSize: 1000,   stepPrice: 0.00000001, minOrderStep: 100, maxOrderStep: 2_000_000, oiLimitSteps: 10_000_000, impactBaseUsdc: 20, priceBandBps: 500 }),
+    mk({ id: 1, symbol: "ETH",  maxLeverage: 50, mmr: "100",  stepSize: 0.001, stepPrice: 0.01,    minOrderStep: 1, maxOrderStep: 500000, oiLimitSteps: 5_000_000, impactBaseUsdc: 100, priceBandBps: 300 }),
+    mk({ id: 2, symbol: "BTC",  maxLeverage: 50, mmr: "100",  stepSize: 0.0001, stepPrice: 0.1,    minOrderStep: 1, maxOrderStep: 200000, oiLimitSteps: 3_000_000, impactBaseUsdc: 200, priceBandBps: 300 }),
+    mk({ id: 3, symbol: "SOL",  maxLeverage: 30, mmr: "50",  stepSize: 0.01,   stepPrice: 0.001,  minOrderStep: 5, maxOrderStep: 300000, oiLimitSteps: 4_000_000, impactBaseUsdc: 80, priceBandBps: 300 }),
+    mk({ id: 4, symbol: "PEPE", maxLeverage: 10, mmr: "12.5",  stepSize: 1000,   stepPrice: 0.00000001, minOrderStep: 100, maxOrderStep: 2_000_000, oiLimitSteps: 10_000_000, impactBaseUsdc: 20, priceBandBps: 500 }),
   ],
 };
 
@@ -106,7 +108,7 @@ export const AERO_TEMPLATE = {
   symbol: "AERO",
   quote: QUOTE_SYMBOL,
   maxLeverage: 10,
-  mmrPct: "5.0",
+  mmr: "20",
   stepSize: 1,
   stepPrice: 0.00001,
   minOrderStep: 20,
@@ -135,11 +137,27 @@ export function bigStr(n: number): string {
   return Math.round(n).toString();
 }
 
-export function rawMmr(pct: string | number) {
+// The contract stores maintenance margin as a ×1e18 value; that is what operators type.
+export function rawMmr(mmr: string | number) {
   try {
-    return mmrPercentToMaintenanceMarginFactor(String(pct)).toString();
+    return parseDecimalToRaw(String(mmr), PROTOCOL_TOKEN_DECIMALS).toString();
   } catch {
     return "invalid";
+  }
+}
+export function mmrFromRaw(raw: string) {
+  try {
+    return formatRawDecimal(BigInt(raw), PROTOCOL_TOKEN_DECIMALS);
+  } catch {
+    return "0";
+  }
+}
+// Liquidation ratio implied by the maintenance margin — shown for reference, never sent.
+export function mmrRatioPct(raw: string) {
+  try {
+    return maintenanceMarginFactorToMmrPercent(BigInt(raw), PROTOCOL_TOKEN_DECIMALS);
+  } catch {
+    return "—";
   }
 }
 export function rawPriceBandBps(percent: string | number) {
