@@ -411,9 +411,9 @@ function DiffRow({ label, before, after, raw }: { label: string; before: string 
       {raw && (
         <div className="col-span-12 grid grid-cols-12 gap-2 text-[10px] font-mono text-muted-foreground/70">
           <div className="col-span-3" />
-          <div className="col-span-4 truncate" title={raw.b}>raw {raw.b}</div>
+          <div className="col-span-4 truncate" title={raw.b}>{raw.b}</div>
           <div className="col-span-1" />
-          <div className="col-span-4 truncate" title={raw.a}>raw {raw.a}</div>
+          <div className="col-span-4 truncate" title={raw.a}>{raw.a}</div>
         </div>
       )}
     </div>
@@ -530,11 +530,11 @@ function MarketEditor({
               <div>
                 <DiffRow label="status" before={base.status} after={s.status} />
                 <DiffRow label="maxLeverage" before={`${base.maxLeverage}x`} after={`${s.maxLeverage}x`} />
-                <DiffRow label="mmr" before={`${base.mmr} (${base.mmrPct}%)`} after={`${s.mmr} (${mmrRatioPct(rawMmr(s.mmr))}%)`} raw={{ b: base.mmrRaw, a: rawMmr(s.mmr) }} />
+                <DiffRow label="mmr" before={base.mmrRaw} after={rawMmr(s.mmr)} raw={{ b: `${base.mmr} * 1e18`, a: `${s.mmr} * 1e18` }} />
                 <DiffRow label="minOrderStep" before={base.minOrderStep} after={s.minOrderStep} />
                 <DiffRow label="maxOrderStep" before={base.maxOrderStep} after={s.maxOrderStep} />
                 <DiffRow label="oiLimitSteps" before={base.oiLimitSteps} after={s.oiLimitSteps} />
-                <DiffRow label="impact base $" before={base.impactBaseUsdc} after={s.impactBaseUsdc} raw={{ b: base.impactBaseRaw, a: rawImpact(s.impactBaseUsdc) }} />
+                <DiffRow label="impact base $" before={base.impactBaseUsdc} after={s.impactBaseUsdc} raw={{ b: `raw ${base.impactBaseRaw}`, a: `raw ${rawImpact(s.impactBaseUsdc)}` }} />
                 <DiffRow
                   label="price band %"
                   before={`${priceBandBpsToPercent(base.priceBandBps)}%`}
