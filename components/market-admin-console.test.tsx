@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MarketAdminConsole } from './market-admin-console'
-import { rawMmr, type EnvKey, type Market } from '@/src/lib/market-domain'
+import { mmrRatioPct, rawMmr, type EnvKey, type Market } from '@/src/lib/market-domain'
 import { deriveIndexPriceId, deriveMarkPriceId } from '@/src/lib/price-ids'
 import { getDeploymentForEnv } from '@/src/config/deployments'
 import { accessManagerAbi, perpsMarketConfigAbi } from '@/src/lib/abis'
@@ -516,7 +516,8 @@ describe('MarketAdminConsole', () => {
 })
 
 function market(partial: Partial<Market> & Pick<Market, 'id' | 'symbol'>): Market {
-  const mmrRaw = partial.mmrRaw ?? rawMmr(partial.mmrPct ?? '5.0')
+  const mmr = partial.mmr ?? '20'
+  const mmrRaw = partial.mmrRaw ?? rawMmr(mmr)
   const stepSizeRaw = partial.stepSizeRaw ?? '1000000000000000000'
   const stepPriceRaw = partial.stepPriceRaw ?? '1000'
   const impactBaseRaw = partial.impactBaseRaw ?? '50'
@@ -527,8 +528,9 @@ function market(partial: Partial<Market> & Pick<Market, 'id' | 'symbol'>): Marke
     quote: partial.quote ?? 'USDC',
     status: partial.status ?? 'unlocked',
     maxLeverage: partial.maxLeverage ?? 10,
-    mmrPct: partial.mmrPct ?? '5.0',
+    mmr,
     mmrRaw,
+    mmrPct: partial.mmrPct ?? mmrRatioPct(mmrRaw),
     stepSize: partial.stepSize ?? 1,
     stepSizeRaw,
     stepPrice: partial.stepPrice ?? 0.00001,
@@ -549,16 +551,15 @@ function market(partial: Partial<Market> & Pick<Market, 'id' | 'symbol'>): Marke
 
 const marketsByEnv: Record<EnvKey, Market[]> = {
   staging: [
-    market({ id: 1, symbol: 'ETH', maxLeverage: 25, mmrPct: '2' }),
-    market({ id: 2, symbol: 'BTC', maxLeverage: 25, mmrPct: '1.8' }),
-    market({ id: 3, symbol: 'SOL', maxLeverage: 20, mmrPct: '2.5' }),
+    market({ id: 1, symbol: 'ETH', maxLeverage: 25, mmr: '50' }),
+    market({ id: 2, symbol: 'BTC', maxLeverage: 25, mmr: '55' }),
+    market({ id: 3, symbol: 'SOL', maxLeverage: 20, mmr: '40' }),
     market({
       id: 4,
       symbol: 'ARB',
       status: 'unlocked',
       maxLeverage: 10,
-      mmrPct: '6.666666666666666666',
-      mmrRaw: '15000000000000000000',
+      mmr: '15',
       markOracleConfigured: false,
     }),
     market({ id: 5, symbol: 'DOGE', quote: 'USDT', stepSize: 10, stepPrice: 0.000001 }),

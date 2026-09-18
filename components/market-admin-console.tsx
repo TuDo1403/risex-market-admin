@@ -17,7 +17,7 @@ import { detectSafeApp, submitSafeAppTransaction, type SafeAppInfo } from "@/src
 import { buildAtomicAccessManagerTx, buildOpenMarketProposal, buildUpdateMarketProposal, type AtomicAccessManagerTx, type InnerCall } from "@/src/lib/proposal-builder";
 import {
   ENVS, EnvKey, Market, AERO_TEMPLATE, DEFAULT_MARK_ORACLE_CONFIG, QUOTE_SYMBOL,
-  fmt, rawMmr, rawImpact, rawStepPrice, rawStepSize,
+  fmt, rawMmr, mmrFromRaw, mmrRatioPct, rawImpact, rawStepPrice, rawStepSize,
   priceBandBpsToPercent, rawPriceBandBps,
   marketTickerName,
 } from "@/src/lib/market-domain";
@@ -273,7 +273,7 @@ function MarketsTable({
         <table className="w-full text-left">
           <thead className="bg-background/60 border-b border-border">
             <tr className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">
-              {["id","market","lock","maxLev","mmr %","mmrRaw","stepSize","stepPrice","minStep","maxStep","oiLimit","impact $","band %","mark τ","mark min","mark max",""].map(h => (
+              {["id","market","lock","maxLev","mmr","ratio %","stepSize","stepPrice","minStep","maxStep","oiLimit","impact $","band %","mark τ","mark min","mark max",""].map(h => (
                 <th key={h} className="px-2 py-1.5 font-normal whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -315,8 +315,8 @@ function MarketsTable({
                 </td>
                 <td className="px-2 py-1.5"><StatusPill s={m.status} /></td>
                 <td className="px-2 py-1.5 data-cell">{m.maxLeverage}x</td>
-                <td className="px-2 py-1.5 data-cell">{m.mmrPct}%</td>
-                <td className="px-2 py-1.5 data-cell text-muted-foreground truncate max-w-[100px]" title={m.mmrRaw}>{m.mmrRaw}</td>
+                <td className="px-2 py-1.5 data-cell" title={`${m.mmrRaw} raw`}>{m.mmr}</td>
+                <td className="px-2 py-1.5 data-cell text-muted-foreground">{m.mmrPct}%</td>
                 <td className="px-2 py-1.5 data-cell">{fmt(m.stepSize)}</td>
                 <td className="px-2 py-1.5 data-cell">${fmt(m.stepPrice)}</td>
                 <td className="px-2 py-1.5 data-cell">{fmt(m.minOrderStep)}</td>
@@ -351,7 +351,7 @@ function emptyEditor() {
     quote: QUOTE_SYMBOL,
     status: "unlocked" as Market["status"],
     maxLeverage: 10,
-    mmrPct: "5.0",
+    mmr: "20",
     stepSize: "1",
     stepPrice: 0.00001,
     minOrderStep: 20,
@@ -368,7 +368,7 @@ function emptyEditor() {
 function fromMarket(m: Market): EditorState {
   return {
     symbol: m.symbol, quote: QUOTE_SYMBOL, status: m.status,
-    maxLeverage: m.maxLeverage, mmrPct: m.mmrPct,
+    maxLeverage: m.maxLeverage, mmr: mmrFromRaw(m.mmrRaw),
     stepSize: String(m.stepSize), stepPrice: m.stepPrice,
     minOrderStep: m.minOrderStep, maxOrderStep: m.maxOrderStep,
     oiLimitSteps: m.oiLimitSteps, impactBaseUsdc: m.impactBaseUsdc,
@@ -386,7 +386,7 @@ function fromTemplate(m: typeof AERO_TEMPLATE): EditorState {
     quote: QUOTE_SYMBOL,
     status: m.status,
     maxLeverage: m.maxLeverage,
-    mmrPct: m.mmrPct,
+    mmr: m.mmr,
     stepSize: String(m.stepSize),
     stepPrice: m.stepPrice,
     minOrderStep: m.minOrderStep,
@@ -411,9 +411,9 @@ function DiffRow({ label, before, after, raw }: { label: string; before: string 
       {raw && (
         <div className="col-span-12 grid grid-cols-12 gap-2 text-[10px] font-mono text-muted-foreground/70">
           <div className="col-span-3" />
-          <div className="col-span-4 truncate" title={raw.b}>raw {raw.b}</div>
+          <div className="col-span-4 truncate" title={raw.b}>{raw.b}</div>
           <div className="col-span-1" />
-          <div className="col-span-4 truncate" title={raw.a}>raw {raw.a}</div>
+          <div className="col-span-4 truncate" title={raw.a}>{raw.a}</div>
         </div>
       )}
     </div>
@@ -494,7 +494,7 @@ function MarketEditor({
             {/* Risk */}
             <div className="space-y-2">
               <Field label="Max leverage" suffix="x" value={s.maxLeverage} onChange={(v) => set("maxLeverage", +v)} mode={rawMode ? "raw" : "friendly"} raw={String(s.maxLeverage)} helper="1–50" />
-              <Field label="Maintenance margin ratio" suffix="%" value={s.mmrPct} onChange={(v) => set("mmrPct", v)} mode={rawMode ? "raw" : "friendly"} raw={rawMmr(s.mmrPct) + "  (×1e18)"} helper="exact decimal string" />
+              <Field label="Maintenance margin" suffix="×1e18" value={s.mmr} onChange={(v) => set("mmr", v)} mode={rawMode ? "raw" : "friendly"} raw={rawMmr(s.mmr)} helper={`ratio ${mmrRatioPct(rawMmr(s.mmr))}%`} type="text" />
               <Field label="Match price band" suffix="%" value={s.priceBandPct} onChange={(v) => set("priceBandPct", v)} mode={rawMode ? "raw" : "friendly"} raw={`${rawPriceBandBps(s.priceBandPct)} raw`} helper="5% = 50000 raw" type="text" />
               <Field label="Impact notional base" suffix="USDC" value={s.impactBaseUsdc} onChange={(v) => set("impactBaseUsdc", +v)} mode={rawMode ? "raw" : "friendly"} raw={rawImpact(s.impactBaseUsdc)} helper="stored uint64; effective = base × 1e18 × maxLev" />
               <div className="grid grid-cols-3 gap-2">
@@ -530,11 +530,11 @@ function MarketEditor({
               <div>
                 <DiffRow label="status" before={base.status} after={s.status} />
                 <DiffRow label="maxLeverage" before={`${base.maxLeverage}x`} after={`${s.maxLeverage}x`} />
-                <DiffRow label="mmr %" before={`${base.mmrPct}%`} after={`${s.mmrPct}%`} raw={{ b: base.mmrRaw, a: rawMmr(s.mmrPct) }} />
+                <DiffRow label="mmr" before={base.mmrRaw} after={rawMmr(s.mmr)} raw={{ b: `${base.mmr} * 1e18`, a: `${s.mmr} * 1e18` }} />
                 <DiffRow label="minOrderStep" before={base.minOrderStep} after={s.minOrderStep} />
                 <DiffRow label="maxOrderStep" before={base.maxOrderStep} after={s.maxOrderStep} />
                 <DiffRow label="oiLimitSteps" before={base.oiLimitSteps} after={s.oiLimitSteps} />
-                <DiffRow label="impact base $" before={base.impactBaseUsdc} after={s.impactBaseUsdc} raw={{ b: base.impactBaseRaw, a: rawImpact(s.impactBaseUsdc) }} />
+                <DiffRow label="impact base $" before={base.impactBaseUsdc} after={s.impactBaseUsdc} raw={{ b: `raw ${base.impactBaseRaw}`, a: `raw ${rawImpact(s.impactBaseUsdc)}` }} />
                 <DiffRow
                   label="price band %"
                   before={`${priceBandBpsToPercent(base.priceBandBps)}%`}
@@ -913,14 +913,6 @@ function markOracleDiffAfterValue(
   return `${state[key]}${suffix}`;
 }
 
-function rawMmrForPanel(base: Market | null, state: EditorState) {
-  if (base && String(state.mmrPct) === String(base.mmrPct)) {
-    return base.mmrRaw;
-  }
-
-  return rawMmr(state.mmrPct);
-}
-
 function rawPriceBandForPanel(base: Market | null, state: EditorState) {
   if (base && String(state.priceBandPct) === priceBandBpsToPercent(base.priceBandBps)) {
     return String(base.priceBandBps);
@@ -933,7 +925,7 @@ function hasPerpsMarketConfigChange(base: Market, state: EditorState) {
   try {
     return (
       BigInt(base.maxLeverage) !== BigInt(state.maxLeverage) ||
-      BigInt(base.mmrRaw) !== parseRawBigInt(rawMmrForPanel(base, state)) ||
+      BigInt(base.mmrRaw) !== parseRawBigInt(rawMmr(state.mmr)) ||
       BigInt(base.minOrderStep) !== BigInt(state.minOrderStep) ||
       BigInt(base.maxOrderStep) !== BigInt(state.maxOrderStep) ||
       BigInt(base.oiLimitSteps) !== BigInt(state.oiLimitSteps) ||
@@ -951,7 +943,7 @@ function buildPerpsConfigForPanel(env: EnvKey, state: EditorState, base: Market 
     quote: deployment.addresses.usdc,
     unlocked: state.status === "unlocked",
     maxLeverage: BigInt(state.maxLeverage),
-    maintenanceMarginFactor: parseRawBigInt(rawMmrForPanel(base, state)),
+    maintenanceMarginFactor: parseRawBigInt(rawMmr(state.mmr)),
     minOrderStep: BigInt(state.minOrderStep),
     maxOrderStep: BigInt(state.maxOrderStep),
     oiLimitSteps: BigInt(state.oiLimitSteps),
@@ -1075,7 +1067,7 @@ function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo
     { fn: "openMarket", required: true, args: [
       `name="${tickerName}"`,
       `maxLeverage=${state.maxLeverage}`,
-      `mmr=${rawMmrForPanel(base, state)}`,
+      `mmr=${rawMmr(state.mmr)}`,
       `minOrderStep=${state.minOrderStep}`,
       `maxOrderStep=${state.maxOrderStep}`,
       `oiLimit=${state.oiLimitSteps}`,
@@ -1087,7 +1079,7 @@ function ProposalPanel({ env, mode, state, base, wallet, walletAddress, safeInfo
     ...(showUpdateMarketConfig ? [{ fn: "updateMarketConfig", required: true, args: [
       `marketId=${base?.id ?? "?"}`,
       `maxLeverage=${state.maxLeverage}`,
-      `mmr=${rawMmrForPanel(base, state)}`,
+      `mmr=${rawMmr(state.mmr)}`,
       `minOrderStep=${state.minOrderStep}`,
       `maxOrderStep=${state.maxOrderStep}`,
       `oiLimit=${state.oiLimitSteps}`,

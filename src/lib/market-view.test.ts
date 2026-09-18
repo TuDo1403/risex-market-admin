@@ -34,8 +34,9 @@ describe('live market display adapter', () => {
       quote: 'USDC',
       status: 'unlocked',
       maxLeverage: 3,
-      mmrPct: '22.222222222222222222',
+      mmr: '4.5',
       mmrRaw: '4500000000000000000',
+      mmrPct: '22.222222222222222222',
       stepSize: '1',
       stepSizeRaw: '1000000000000000000',
       stepPrice: 0.00001,
@@ -71,6 +72,7 @@ describe('live market display adapter', () => {
 
     expect(market.status).toBe('locked')
     expect(market.mmrRaw).toBe('50000000000000000000')
+    expect(market.mmr).toBe('50')
   })
 
   it('prefills default editable mark oracle values when a live market has no configured mark oracle', () => {
@@ -119,6 +121,7 @@ describe('live market display adapter', () => {
     })
 
     expect(market.status).toBe('locked')
+    expect(market.mmr).toBe('0')
     expect(market.mmrPct).toBe('0')
     expect(market.mmrRaw).toBe('0')
   })

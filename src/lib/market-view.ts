@@ -11,7 +11,7 @@ export function liveMarketToDisplayMarket(live: LiveMarket): Market {
   const [baseFromName] = live.name.split('/')
   const mmrPercent =
     live.maintenanceMarginFactor > 0n
-      ? maintenanceMarginFactorToMmrPercent(live.maintenanceMarginFactor, 18)
+      ? maintenanceMarginFactorToMmrPercent(live.maintenanceMarginFactor, PROTOCOL_TOKEN_DECIMALS)
       : '0'
   const impactBaseUsdc = live.impactNotionalBaseUsdc ?? 0n
   const markOracle = live.markOracleConfig
@@ -26,8 +26,9 @@ export function liveMarketToDisplayMarket(live: LiveMarket): Market {
     quote: QUOTE_SYMBOL,
     status: live.unlocked ? 'unlocked' : 'locked',
     maxLeverage: Number(live.maxLeverage),
-    mmrPct: mmrPercent,
+    mmr: formatRawDecimal(live.maintenanceMarginFactor, PROTOCOL_TOKEN_DECIMALS),
     mmrRaw: live.maintenanceMarginFactor.toString(),
+    mmrPct: mmrPercent,
     // On-chain stepSize and stepPrice are both WAD-scaled (1e18), verified against
     // the live contract (BTC/USDC: stepPrice 1e17 = $0.1). They are NOT price-feed
     // precision (8); using that here mis-scales stepPrice by 1e10.
